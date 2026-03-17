@@ -54,12 +54,14 @@ usecase/proxy_stream.go     → define ChatStreamer (1 método: StreamChat)
 usecase/admin_account.go    → define AccountStore (CRUD completo: FindByID, FindAll, Create, Save, Delete)
 usecase/admin_apikey.go     → define APIKeyStore  (CRUD completo: FindByID, FindAll, Create, Delete)
 
+usecase/authenticate.go     → define APIKeyFinder        (1 método: FindByPrefix)
+adapter/middleware/logging.go → define RequestLogger (1 método: LogRequest) + RequestLogEntry
+adapter/middleware/auth.go  → define Authenticator       (1 método: Execute)
+
 Planejados:
 usecase/select_account.go   → define AccountFinder      (1 método: FindAvailable)
 usecase/handle_fallback.go  → define AccountStatusWriter (2 métodos: UpdateStatus, RecordSuccess)
-usecase/authenticate.go     → define APIKeyFinder        (1 método: FindByPrefix)
 usecase/manage_session.go   → define SessionReader, SessionWriter
-adapter/middleware/logging.go → define RequestLogger (1 método: LogRequest) + RequestLogEntry — concern de infra, não de negócio
 ```
 
 Isso garante que cada componente depende apenas do que consome, não de um contrato monolítico.
@@ -96,7 +98,7 @@ kestrel/
 │   │   ├── proxy_stream.go            # ProxyStreamUseCase (streaming) + ChatStreamer interface (Phase 2: single account)
 │   │   ├── admin_account.go           # AdminAccountUseCase (Create, Update, List, Delete, Reset) + AccountStore interface
 │   │   ├── admin_apikey.go            # AdminAPIKeyUseCase (Create, List, Revoke) + APIKeyStore interface
-│   │   ├── authenticate.go            # (planned — Phase 4)
+│   │   ├── authenticate.go            # AuthenticateUseCase + APIKeyFinder interface
 │   │   ├── select_account.go          # (planned — Phase 5)
 │   │   ├── handle_fallback.go         # (planned — Phase 5)
 │   │   └── manage_session.go          # (planned — Phase 5)
@@ -112,8 +114,8 @@ kestrel/
 │   │   ├── middleware/
 │   │   │   ├── requestid.go           # Injeta X-Request-ID
 │   │   │   ├── recovery.go            # Panic recovery
-│   │   │   ├── auth.go                # (planned — Phase 4)
-│   │   │   └── logging.go             # (planned — Phase 4)
+│   │   │   ├── auth.go                # Bearer token validation, APIKey no context
+│   │   │   └── logging.go             # RequestLogger interface + slog request logging
 │   │   │
 │   │   ├── claude/
 │   │   │   ├── client.go              # Implementa ChatSender, ChatStreamer (traduz domínio → Claude internamente)

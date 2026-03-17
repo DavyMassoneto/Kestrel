@@ -56,19 +56,24 @@ make build
 
 ## Environment Variables
 
-| Variable     | Default | Description                         |
-|--------------|---------|-------------------------------------|
-| `PORT`       | `8080`  | HTTP server port                    |
-| `LOG_LEVEL`  | `info`  | Log level (debug, info, warn, error)|
-| `LOG_FORMAT` | `json`  | Log format (json, pretty)           |
+| Variable         | Default                       | Required | Description                          |
+|------------------|-------------------------------|----------|--------------------------------------|
+| `PORT`           | `8080`                        | No       | HTTP server port                     |
+| `LOG_LEVEL`      | `info`                        | No       | Log level (debug, info, warn, error) |
+| `LOG_FORMAT`     | `json`                        | No       | Log format (json, pretty)            |
+| `ENCRYPTION_KEY` | —                             | Yes      | AES-256 key for encrypting API keys at rest |
+| `ADMIN_KEY`      | —                             | Yes      | Key for authenticating admin API requests (X-Admin-Key header) |
+| `CLAUDE_API_KEY` | —                             | Yes      | Default Claude API key (Phase 2 single-account mode) |
+| `CLAUDE_BASE_URL`| `https://api.anthropic.com`   | No       | Claude API base URL                  |
+| `DB_PATH`        | `kestrel.db`                  | No       | SQLite database file path            |
 
 ## Endpoints Implemented
 
 | Method | Path                         | Description                |
 |--------|------------------------------|----------------------------|
 | GET    | `/health`                    | Health check (public)      |
-| GET    | `/v1/models`                 | List supported models      |
-| POST   | `/v1/chat/completions`       | Chat proxy (OpenAI format) |
+| GET    | `/v1/models`                 | List supported models (Bearer auth) |
+| POST   | `/v1/chat/completions`       | Chat proxy, OpenAI format (Bearer auth) |
 | GET    | `/admin/accounts`            | List accounts              |
 | POST   | `/admin/accounts`            | Create account             |
 | PUT    | `/admin/accounts/{id}`       | Update account             |
@@ -85,7 +90,7 @@ Admin endpoints require `X-Admin-Key` header.
 - **Phase 1** — Skeleton (server, config, logger, middlewares): Done
 - **Phase 2** — Domain + Translation (entities, VOs, Claude adapter, chat handler, SSE): Done
 - **Phase 3** — SQLite + Persistence (repos, migrations, crypto, admin CRUD): Done
-- **Phase 4** — Authentication + Logging Middleware: Pending
+- **Phase 4** — Authentication + Logging Middleware: Done
 - **Phase 5** — Multi-account + Fallback: Pending
 - **Phase 6** — Request Log persistence: Pending
 - **Phase 7** — Frontend + Deploy: Pending

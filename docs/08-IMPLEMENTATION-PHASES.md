@@ -133,15 +133,15 @@ Arquivos de teste:
 
 ---
 
-## Fase 4 — Autenticação + Logging Middleware
+## Fase 4 — Autenticação + Logging Middleware [DONE]
 
 **Objetivo:** Requests precisam de API key válida. Request logging funcional.
 
 ```
 Arquivos de produção:
-  internal/usecase/authenticate.go
-  internal/adapter/middleware/auth.go        # Valida API key
-  internal/adapter/middleware/logging.go     # RequestLogger interface + log de request/response
+  internal/usecase/authenticate.go            # AuthenticateUseCase + APIKeyFinder interface
+  internal/adapter/middleware/auth.go          # Bearer token validation, APIKey no context
+  internal/adapter/middleware/logging.go       # RequestLogger interface + slog request logging
 
 Arquivos de teste:
   internal/usecase/authenticate_test.go
@@ -149,9 +149,9 @@ Arquivos de teste:
   internal/adapter/middleware/logging_test.go
 ```
 
-**Entregável:** Requests sem key → 401. Key inválida → 401.
+**Entregável:** Requests sem key → 401. Key inválida → 401. Bearer auth no /v1/* routes.
 
-**Critério de aceite:** Testes cobrindo todos os cenários de auth (sem key, key inválida, key válida).
+**Critério de aceite:** Testes cobrindo todos os cenários de auth (sem key, key inválida, key válida, Bearer parsing).
 
 ---
 

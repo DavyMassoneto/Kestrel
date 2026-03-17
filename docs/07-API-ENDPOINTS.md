@@ -266,8 +266,8 @@ Lista requests recentes.
 ## Roteamento
 
 ```
-/v1/*                → Proxy (requer Bearer token)
+/v1/*                → Proxy (requer Bearer token — API key criada via POST /admin/keys)
 /health              → Health (público)
-/admin/*             → Admin (requer X-Admin-Key)
-/app/*               → Frontend SPA (static files)
+/admin/*             → Admin (requer X-Admin-Key header)
+/app/*               → Frontend SPA (static files — planned)
 ```
