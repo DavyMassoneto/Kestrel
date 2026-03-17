@@ -3,10 +3,13 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/DavyMassoneto/Kestrel/internal/adapter/middleware"
 	"github.com/DavyMassoneto/Kestrel/internal/domain/entity"
 	"github.com/DavyMassoneto/Kestrel/internal/domain/vo"
 	"github.com/DavyMassoneto/Kestrel/internal/usecase"
@@ -16,14 +19,16 @@ import (
 type AdminHandler struct {
 	accountUC *usecase.AdminAccountUseCase
 	apiKeyUC  *usecase.AdminAPIKeyUseCase
+	logReader middleware.RequestLogReader
 	adminKey  string
 }
 
 // NewAdminHandler creates a new AdminHandler.
-func NewAdminHandler(accountUC *usecase.AdminAccountUseCase, apiKeyUC *usecase.AdminAPIKeyUseCase, adminKey string) *AdminHandler {
+func NewAdminHandler(accountUC *usecase.AdminAccountUseCase, apiKeyUC *usecase.AdminAPIKeyUseCase, logReader middleware.RequestLogReader, adminKey string) *AdminHandler {
 	return &AdminHandler{
 		accountUC: accountUC,
 		apiKeyUC:  apiKeyUC,
+		logReader: logReader,
 		adminKey:  adminKey,
 	}
 }
@@ -42,6 +47,8 @@ func (h *AdminHandler) RegisterRoutes(r chi.Router) {
 		r.Post("/keys", h.createAPIKey)
 		r.Get("/keys", h.listAPIKeys)
 		r.Delete("/keys/{id}", h.revokeAPIKey)
+
+		r.Get("/logs", h.listLogs)
 	})
 }
 
@@ -325,6 +332,122 @@ func (h *AdminHandler) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Request Log endpoints ---
+
+type logEntryResponse struct {
+	ID           string `json:"id"`
+	APIKeyName   string `json:"api_key_name"`
+	AccountName  string `json:"account_name"`
+	Model        string `json:"model"`
+	Status       int    `json:"status"`
+	InputTokens  int    `json:"input_tokens"`
+	OutputTokens int    `json:"output_tokens"`
+	LatencyMs    int64  `json:"latency_ms"`
+	Retries      int    `json:"retries"`
+	Stream       bool   `json:"stream"`
+	CreatedAt    string `json:"created_at"`
+}
+
+func (h *AdminHandler) listLogs(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	filters := middleware.RequestLogFilters{
+		Limit:  50,
+		Offset: 0,
+	}
+
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "invalid limit")
+			return
+		}
+		filters.Limit = n
+	}
+	if filters.Limit > 500 {
+		filters.Limit = 500
+	}
+	if filters.Limit <= 0 {
+		filters.Limit = 50
+	}
+
+	if v := q.Get("offset"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "invalid offset")
+			return
+		}
+		filters.Offset = n
+	}
+
+	if v := q.Get("status"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "invalid status")
+			return
+		}
+		filters.Status = &n
+	}
+
+	if v := q.Get("account_id"); v != "" {
+		filters.AccountID = &v
+	}
+	if v := q.Get("api_key_id"); v != "" {
+		filters.APIKeyID = &v
+	}
+	if v := q.Get("model"); v != "" {
+		filters.Model = &v
+	}
+
+	if v := q.Get("from"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "invalid from date, expected ISO 8601")
+			return
+		}
+		filters.From = &t
+	}
+	if v := q.Get("to"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "invalid to date, expected ISO 8601")
+			return
+		}
+		filters.To = &t
+	}
+
+	entries, total, err := h.logReader.FindAll(r.Context(), filters)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", "internal_error", err.Error())
+		return
+	}
+
+	data := make([]logEntryResponse, len(entries))
+	for i, e := range entries {
+		data[i] = logEntryResponse{
+			ID:           e.RequestID,
+			APIKeyName:   e.APIKeyName,
+			AccountName:  e.AccountName,
+			Model:        e.Model,
+			Status:       e.Status,
+			InputTokens:  e.InputTokens,
+			OutputTokens: e.OutputTokens,
+			LatencyMs:    e.LatencyMs,
+			Retries:      e.Retries,
+			Stream:       e.Stream,
+			CreatedAt:    e.CreatedAt,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data":   data,
+		"total":  total,
+		"limit":  filters.Limit,
+		"offset": filters.Offset,
+	})
 }
 
 func isNotFound(err error) bool {

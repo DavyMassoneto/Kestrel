@@ -61,7 +61,7 @@ func TestRequestLogRepo_LogAndFindAll(t *testing.T) {
 		t.Fatalf("LogRequest: %v", err)
 	}
 
-	entries, total, err := repo.FindAll(ctx, sqlite.RequestLogFilters{})
+	entries, total, err := repo.FindAll(ctx, middleware.RequestLogFilters{})
 	if err != nil {
 		t.Fatalf("FindAll: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestRequestLogRepo_LogRequest_NullableFields(t *testing.T) {
 		t.Fatalf("LogRequest: %v", err)
 	}
 
-	entries, total, err := repo.FindAll(ctx, sqlite.RequestLogFilters{})
+	entries, total, err := repo.FindAll(ctx, middleware.RequestLogFilters{})
 	if err != nil {
 		t.Fatalf("FindAll: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestRequestLogRepo_FilterByStatus(t *testing.T) {
 	repo.LogRequest(ctx, errEntry)
 
 	status := 500
-	entries, total, err := repo.FindAll(ctx, sqlite.RequestLogFilters{Status: &status})
+	entries, total, err := repo.FindAll(ctx, middleware.RequestLogFilters{Status: &status})
 	if err != nil {
 		t.Fatalf("FindAll: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestRequestLogRepo_FilterByAccountID(t *testing.T) {
 	repo.LogRequest(ctx, e2)
 
 	accID := "acc-2"
-	entries, total, err := repo.FindAll(ctx, sqlite.RequestLogFilters{AccountID: &accID})
+	entries, total, err := repo.FindAll(ctx, middleware.RequestLogFilters{AccountID: &accID})
 	if err != nil {
 		t.Fatalf("FindAll: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestRequestLogRepo_FilterByAPIKeyID(t *testing.T) {
 	repo.LogRequest(ctx, e2)
 
 	keyID := "key-1"
-	entries, total, err := repo.FindAll(ctx, sqlite.RequestLogFilters{APIKeyID: &keyID})
+	entries, total, err := repo.FindAll(ctx, middleware.RequestLogFilters{APIKeyID: &keyID})
 	if err != nil {
 		t.Fatalf("FindAll: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestRequestLogRepo_FilterByModel(t *testing.T) {
 	repo.LogRequest(ctx, e2)
 
 	model := "claude-opus-4-20250514"
-	entries, total, err := repo.FindAll(ctx, sqlite.RequestLogFilters{Model: &model})
+	entries, total, err := repo.FindAll(ctx, middleware.RequestLogFilters{Model: &model})
 	if err != nil {
 		t.Fatalf("FindAll: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestRequestLogRepo_FilterByDateRange(t *testing.T) {
 
 	from := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 3, 18, 0, 0, 0, 0, time.UTC)
-	entries, total, err := repo.FindAll(ctx, sqlite.RequestLogFilters{From: &from, To: &to})
+	entries, total, err := repo.FindAll(ctx, middleware.RequestLogFilters{From: &from, To: &to})
 	if err != nil {
 		t.Fatalf("FindAll: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestRequestLogRepo_Pagination(t *testing.T) {
 	}
 
 	// Page 1: limit=2, offset=0
-	entries, total, err := repo.FindAll(ctx, sqlite.RequestLogFilters{Limit: 2, Offset: 0})
+	entries, total, err := repo.FindAll(ctx, middleware.RequestLogFilters{Limit: 2, Offset: 0})
 	if err != nil {
 		t.Fatalf("FindAll page 1: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestRequestLogRepo_Pagination(t *testing.T) {
 	}
 
 	// Page 2: limit=2, offset=2
-	entries2, total2, err := repo.FindAll(ctx, sqlite.RequestLogFilters{Limit: 2, Offset: 2})
+	entries2, total2, err := repo.FindAll(ctx, middleware.RequestLogFilters{Limit: 2, Offset: 2})
 	if err != nil {
 		t.Fatalf("FindAll page 2: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestRequestLogRepo_Pagination(t *testing.T) {
 	}
 
 	// Page 3: limit=2, offset=4
-	entries3, _, err := repo.FindAll(ctx, sqlite.RequestLogFilters{Limit: 2, Offset: 4})
+	entries3, _, err := repo.FindAll(ctx, middleware.RequestLogFilters{Limit: 2, Offset: 4})
 	if err != nil {
 		t.Fatalf("FindAll page 3: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestRequestLogRepo_OrderByCreatedAtDesc(t *testing.T) {
 	e2.CreatedAt = "2026-03-17T11:00:00Z"
 	repo.LogRequest(ctx, e2)
 
-	entries, _, err := repo.FindAll(ctx, sqlite.RequestLogFilters{})
+	entries, _, err := repo.FindAll(ctx, middleware.RequestLogFilters{})
 	if err != nil {
 		t.Fatalf("FindAll: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestRequestLogRepo_DefaultLimit(t *testing.T) {
 	}
 
 	// Default limit=0 should return 50
-	entries, total, err := repo.FindAll(ctx, sqlite.RequestLogFilters{})
+	entries, total, err := repo.FindAll(ctx, middleware.RequestLogFilters{})
 	if err != nil {
 		t.Fatalf("FindAll: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestRequestLogRepo_MaxLimit(t *testing.T) {
 	repo.LogRequest(ctx, e)
 
 	// Limit > 500 should be capped at 500
-	entries, _, err := repo.FindAll(ctx, sqlite.RequestLogFilters{Limit: 1000})
+	entries, _, err := repo.FindAll(ctx, middleware.RequestLogFilters{Limit: 1000})
 	if err != nil {
 		t.Fatalf("FindAll: %v", err)
 	}
@@ -449,11 +449,74 @@ func TestRequestLogRepo_FindAll_ClosedDB(t *testing.T) {
 	repo := sqlite.NewRequestLogRepo(db)
 	db.Close()
 
-	_, _, err = repo.FindAll(context.Background(), sqlite.RequestLogFilters{})
+	_, _, err = repo.FindAll(context.Background(), middleware.RequestLogFilters{})
 	if err == nil {
 		t.Fatal("expected error for closed DB on FindAll")
 	}
 }
+
+func TestRequestLogRepo_FindAll_ScanError(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	db.Writer().Exec("PRAGMA foreign_keys=OFF")
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	// Insert row with incompatible type: string in INTEGER status column.
+	// SQLite dynamic typing allows this, but Go's rows.Scan into int fails.
+	_, err = db.Writer().Exec(
+		`INSERT INTO request_log (id, api_key_id, model, status, stream, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		"req-bad", "key-1", "claude-sonnet-4-20250514", "not-a-number", 0, "2026-03-17T10:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	repo := sqlite.NewRequestLogRepo(db)
+	_, _, err = repo.FindAll(context.Background(), middleware.RequestLogFilters{})
+	if err == nil {
+		t.Fatal("expected scan error for incompatible status type")
+	}
+}
+
+func TestRequestLogRepo_FindAll_QueryError(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	db.Writer().Exec("PRAGMA foreign_keys=OFF")
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	// Replace request_log table with a view that has fewer columns.
+	// COUNT(*) works on the view, but SELECT of 14 specific columns will fail.
+	db.Writer().Exec("DROP TABLE request_log")
+	db.Writer().Exec("CREATE TABLE request_log_data (id TEXT PRIMARY KEY, status INTEGER)")
+	db.Writer().Exec("INSERT INTO request_log_data VALUES ('req-1', 200)")
+	db.Writer().Exec("CREATE VIEW request_log AS SELECT id, status FROM request_log_data")
+
+	repo := sqlite.NewRequestLogRepo(db)
+	_, _, err = repo.FindAll(context.Background(), middleware.RequestLogFilters{})
+	if err == nil {
+		t.Fatal("expected query error for view with insufficient columns")
+	}
+}
+
 
 func TestRequestLogRepo_MultipleFilters(t *testing.T) {
 	repo := setupLogRepo(t)
@@ -479,7 +542,7 @@ func TestRequestLogRepo_MultipleFilters(t *testing.T) {
 	// Filter: status=200 AND account_id=acc-1
 	status := 200
 	accID := "acc-1"
-	entries, total, err := repo.FindAll(ctx, sqlite.RequestLogFilters{
+	entries, total, err := repo.FindAll(ctx, middleware.RequestLogFilters{
 		Status:    &status,
 		AccountID: &accID,
 	})

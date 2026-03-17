@@ -92,6 +92,7 @@ func main() {
 	// --- Repositories ---
 	accountRepo := sqlite.NewAccountRepo(db, encryptor)
 	apiKeyRepo := sqlite.NewAPIKeyRepo(db)
+	requestLogRepo := sqlite.NewRequestLogRepo(db)
 
 	// --- Session Store ---
 	sessionStore := session.NewMemorySessionStore(5*time.Minute, 30*time.Minute)
@@ -136,7 +137,7 @@ func main() {
 	// --- Handlers ---
 	startTime := time.Now()
 	healthHandler := handler.NewHealth(startTime)
-	adminHandler := handler.NewAdminHandler(adminAccountUC, adminAPIKeyUC, appCfg.AdminKey)
+	adminHandler := handler.NewAdminHandler(adminAccountUC, adminAPIKeyUC, requestLogRepo, appCfg.AdminKey)
 	chatHandler := handler.NewChatHandler(
 		&chatAdapter{uc: proxyChatUC},
 		&streamAdapter{uc: proxyStreamUC},
@@ -153,7 +154,7 @@ func main() {
 	adminHandler.RegisterRoutes(r)
 
 	r.Route("/v1", func(r chi.Router) {
-		r.Use(middleware.NewLogging(nil))
+		r.Use(middleware.NewLogging(requestLogRepo))
 		r.Use(middleware.Auth(authenticateUC))
 		r.Post("/chat/completions", chatHandler.ServeHTTP)
 		r.Get("/models", modelsHandler)

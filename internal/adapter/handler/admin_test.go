@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/DavyMassoneto/Kestrel/internal/adapter/middleware"
 	"github.com/DavyMassoneto/Kestrel/internal/domain/entity"
 	"github.com/DavyMassoneto/Kestrel/internal/domain/vo"
 	"github.com/DavyMassoneto/Kestrel/internal/usecase"
@@ -111,7 +112,7 @@ func setupAdminRouter(adminKey string) (*chi.Mux, *mockAccountStore, *mockAPIKey
 	accUC := usecase.NewAdminAccountUseCase(accStore)
 	keyUC := usecase.NewAdminAPIKeyUseCase(keyStore)
 
-	adminHandler := NewAdminHandler(accUC, keyUC, adminKey)
+	adminHandler := NewAdminHandler(accUC, keyUC, nil, adminKey)
 
 	r := chi.NewRouter()
 	adminHandler.RegisterRoutes(r)

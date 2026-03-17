@@ -61,6 +61,23 @@ type RequestLogger interface {
 	LogRequest(ctx context.Context, entry RequestLogEntry) error
 }
 
+// RequestLogFilters controls filtering and pagination for log queries.
+type RequestLogFilters struct {
+	Limit     int
+	Offset    int
+	Status    *int
+	AccountID *string
+	APIKeyID  *string
+	Model     *string
+	From      *time.Time
+	To        *time.Time
+}
+
+// RequestLogReader retrieves request log entries with filtering.
+type RequestLogReader interface {
+	FindAll(ctx context.Context, filters RequestLogFilters) ([]RequestLogEntry, int, error)
+}
+
 // NewLogging creates a logging middleware.
 // If logger is nil, only slog output is produced.
 func NewLogging(logger RequestLogger) func(http.Handler) http.Handler {

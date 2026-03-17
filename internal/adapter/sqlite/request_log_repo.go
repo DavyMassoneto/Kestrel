@@ -9,18 +9,6 @@ import (
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/middleware"
 )
 
-// RequestLogFilters controls filtering and pagination for log queries.
-type RequestLogFilters struct {
-	Limit     int
-	Offset    int
-	Status    *int
-	AccountID *string
-	APIKeyID  *string
-	Model     *string
-	From      *time.Time
-	To        *time.Time
-}
-
 // RequestLogRepo persists request log entries to SQLite.
 type RequestLogRepo struct {
 	db *DB
@@ -70,7 +58,7 @@ func (r *RequestLogRepo) LogRequest(ctx context.Context, entry middleware.Reques
 
 // FindAll retrieves request log entries with filtering and pagination.
 // Returns entries, total count (for pagination), and error.
-func (r *RequestLogRepo) FindAll(ctx context.Context, filters RequestLogFilters) ([]middleware.RequestLogEntry, int, error) {
+func (r *RequestLogRepo) FindAll(ctx context.Context, filters middleware.RequestLogFilters) ([]middleware.RequestLogEntry, int, error) {
 	limit := filters.Limit
 	if limit <= 0 {
 		limit = 50
@@ -170,9 +158,5 @@ func (r *RequestLogRepo) FindAll(ctx context.Context, filters RequestLogFilters)
 		entries = append(entries, e)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("rows error request_log: %w", err)
-	}
-
-	return entries, total, nil
+	return entries, total, rows.Err()
 }
