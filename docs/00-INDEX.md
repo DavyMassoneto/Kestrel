@@ -16,6 +16,7 @@ Escopo v1: apenas Claude, multi-conta com rotação por quota.
 | 07 | [API-ENDPOINTS](./07-API-ENDPOINTS.md) | Todos os endpoints (proxy, health, admin CRUD, logs) |
 | 08 | [IMPLEMENTATION-PHASES](./08-IMPLEMENTATION-PHASES.md) | 8 fases de implementação com arquivos e entregáveis |
 | 09 | [FRONTEND](./09-FRONTEND.md) | SPA React + Vite, páginas, integração com Go (embed), auto-refresh |
+| 10 | [OAUTH](./10-OAUTH.md) | OAuth authorization code flow com PKCE para contas Anthropic |
 
 ## Decisões rápidas
 

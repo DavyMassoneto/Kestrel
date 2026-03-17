@@ -26,6 +26,7 @@ Claude Code ──> Kestrel (Go proxy) ──> Anthropic API
 - **Structured logging** — slog with JSON or pretty text output
 - **Encryption at rest** — AES-256-GCM for stored API keys
 - **Single binary** — frontend embedded via `embed.FS`, no separate web server needed
+- **OAuth support** — authorization code flow with PKCE for Anthropic accounts
 
 ## Stack
 
@@ -69,6 +70,10 @@ make build
 | `CLAUDE_API_KEY` | —                             | Yes      | Claude API key (legacy — accounts now managed via admin API) |
 | `CLAUDE_BASE_URL`| `https://api.anthropic.com`   | No       | Claude API base URL (legacy)         |
 | `DB_PATH`        | `kestrel.db`                  | No       | SQLite database file path            |
+| `OAUTH_CLIENT_ID`| —                             | No       | OAuth client ID (enables OAuth flow when set) |
+| `OAUTH_REDIRECT_URI`| `http://localhost:8080/api/oauth/callback` | No | OAuth callback URL |
+| `OAUTH_AUTH_URL` | `https://console.anthropic.com/oauth/authorize` | No | OAuth authorization endpoint |
+| `OAUTH_TOKEN_URL`| `https://console.anthropic.com/oauth/token` | No | OAuth token endpoint |
 
 ## Endpoints Implemented
 
@@ -86,9 +91,12 @@ make build
 | POST   | `/admin/keys`                | Create API key             |
 | DELETE | `/admin/keys/{id}`           | Revoke API key             |
 | GET    | `/admin/logs`                | Query request logs (paginated, filterable) |
+| GET    | `/api/oauth/authorize`       | Start OAuth authorization flow (redirects to provider) |
+| GET    | `/api/oauth/callback`        | OAuth callback — exchanges code for tokens |
 | GET    | `/app/*`                     | Admin dashboard SPA (React)  |
 
 Admin endpoints require `X-Admin-Key` header. The dashboard at `/app/` authenticates via the same admin key.
+OAuth endpoints are available when `OAUTH_CLIENT_ID` is configured.
 
 ## Implementation Status
 

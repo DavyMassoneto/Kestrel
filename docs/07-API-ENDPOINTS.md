@@ -263,11 +263,42 @@ Lista requests recentes.
 
 ---
 
+## OAuth
+
+Endpoints disponíveis quando `OAUTH_CLIENT_ID` é configurado. Ver [10-OAUTH.md](./10-OAUTH.md) para detalhes do fluxo.
+
+### GET /api/oauth/authorize
+
+Inicia o fluxo OAuth Authorization Code com PKCE. Redireciona o browser para o provider (Anthropic).
+
+**Response:** `302 Found` → redirect para authorization endpoint.
+
+### GET /api/oauth/callback
+
+Recebe o callback do provider após autorização do usuário. Troca o authorization code por tokens.
+
+**Response (sucesso):**
+```json
+{
+  "access_token": "ant-at-...",
+  "refresh_token": "ant-rt-...",
+  "token_type": "Bearer",
+  "expires_in": 3600
+}
+```
+
+**Erros:**
+- `400` — parâmetros ausentes (`code`, `state`) ou state inválido/expirado
+- `502` — falha na troca de code por tokens junto ao provider
+
+---
+
 ## Roteamento
 
 ```
 /v1/*                → Proxy (requer Bearer token — API key criada via POST /admin/keys)
 /health              → Health (público)
 /admin/*             → Admin (requer X-Admin-Key header)
-/app/*               → Frontend SPA (static files — planned)
+/api/oauth/*         → OAuth (disponível quando OAUTH_CLIENT_ID configurado)
+/app/*               → Frontend SPA (static files)
 ```

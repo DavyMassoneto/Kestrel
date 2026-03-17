@@ -115,6 +115,7 @@ Arquivos de produção:
   migrations/embed.go
   migrations/001_accounts.sql
   migrations/002_apikeys.sql
+  migrations/004_oauth_accounts.sql
 
 Arquivos de teste:
   internal/adapter/sqlite/db_test.go (implícito via integration tests)

@@ -109,7 +109,8 @@ kestrel/
 │   │   │   ├── translator.go          # OpenAI ↔ domínio (ChatRequest, ChatResponse, StreamEvent)
 │   │   │   ├── models.go              # GET /v1/models
 │   │   │   ├── health.go              # GET /health
-│   │   │   └── admin.go               # CRUD contas + keys (chama use cases administrativos)
+│   │   │   ├── admin.go               # CRUD contas + keys (chama use cases administrativos)
+│   │   │   └── oauth.go              # OAuth authorize + callback endpoints
 │   │   │
 │   │   ├── middleware/
 │   │   │   ├── requestid.go           # Injeta X-Request-ID
@@ -128,6 +129,10 @@ kestrel/
 │   │   │
 │   │   ├── crypto/
 │   │   │   └── aes.go                # AES-256-GCM encrypt/decrypt para API keys at rest
+│   │   │
+│   │   ├── oauth/
+│   │   │   ├── claude.go              # OAuth Client: PKCE, AuthorizationURL, ExchangeCode, RefreshToken
+│   │   │   └── claude_test.go         # Testes do client OAuth
 │   │   │
 │   │   ├── session/
 │   │   │   └── memory.go             # MemorySessionStore (in-memory com RWMutex + cleanup goroutine)
@@ -160,7 +165,8 @@ kestrel/
 │   ├── embed.go                       # embed.FS para migrations SQL
 │   ├── 001_accounts.sql
 │   ├── 002_apikeys.sql
-│   └── 003_request_log.sql            # Tabela request_log + índices
+│   ├── 003_request_log.sql            # Tabela request_log + índices
+│   └── 004_oauth_accounts.sql        # Campos OAuth na tabela accounts (auth_type, tokens, email)
 │
 ├── Dockerfile                         # Multi-stage build (node → go → alpine)
 ├── go.mod

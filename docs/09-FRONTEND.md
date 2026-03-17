@@ -212,6 +212,7 @@ if cfg.IsDev() {
 /v1/*          → Proxy API (Bearer token)
 /health        → Health endpoint (público)
 /admin/*       → Admin API (X-Admin-Key)
+/api/oauth/*   → OAuth (disponível quando OAUTH_CLIENT_ID configurado)
 /app/*         → Frontend SPA (static files)
 /app           → index.html (SPA entrypoint)
 ```
