@@ -3,11 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/middleware"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/sse"
+	"github.com/DavyMassoneto/Kestrel/internal/domain/errs"
 	"github.com/DavyMassoneto/Kestrel/internal/domain/vo"
 )
 
@@ -114,7 +116,8 @@ func (h *ChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if ld != nil {
 				ld.Error = err.Error()
 			}
-			writeError(w, http.StatusInternalServerError, "server_error", "internal_error", err.Error())
+			status, code := mapUseCaseError(err)
+			writeError(w, status, "server_error", code, err.Error())
 			return
 		}
 		if ld != nil {
@@ -135,7 +138,8 @@ func (h *ChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if ld != nil {
 				ld.Error = err.Error()
 			}
-			writeError(w, http.StatusInternalServerError, "server_error", "internal_error", err.Error())
+			status, code := mapUseCaseError(err)
+			writeError(w, status, "server_error", code, err.Error())
 			return
 		}
 		if ld != nil {
@@ -161,6 +165,13 @@ type errorDetail struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Code    string `json:"code"`
+}
+
+func mapUseCaseError(err error) (int, string) {
+	if errors.Is(err, errs.ErrAllAccountsExhausted) {
+		return http.StatusServiceUnavailable, "all_accounts_exhausted"
+	}
+	return http.StatusInternalServerError, "internal_error"
 }
 
 func writeError(w http.ResponseWriter, status int, errType, code, message string) {

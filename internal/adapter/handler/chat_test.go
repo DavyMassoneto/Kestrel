@@ -12,6 +12,7 @@ import (
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/handler"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/middleware"
 	"github.com/DavyMassoneto/Kestrel/internal/domain/entity"
+	"github.com/DavyMassoneto/Kestrel/internal/domain/errs"
 	"github.com/DavyMassoneto/Kestrel/internal/domain/vo"
 )
 
@@ -346,6 +347,44 @@ func TestChatHandler_ModelAllowed(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d; want %d", rec.Code, http.StatusOK)
 	}
+}
+
+func TestChatHandler_AllAccountsExhausted_Returns503(t *testing.T) {
+	chat := &mockChatExecutor{
+		err: errs.ErrAllAccountsExhausted,
+	}
+	h := handler.NewChatHandler(chat, nil)
+
+	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	serveWithAuth(h, apiKeyForTest(t), rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d; want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+
+	assertErrorResponse(t, rec, "server_error", "all_accounts_exhausted")
+}
+
+func TestChatHandler_StreamAllAccountsExhausted_Returns503(t *testing.T) {
+	stream := &mockStreamExecutor{
+		err: errs.ErrAllAccountsExhausted,
+	}
+	h := handler.NewChatHandler(nil, stream)
+
+	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	serveWithAuth(h, apiKeyForTest(t), rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d; want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+
+	assertErrorResponse(t, rec, "server_error", "all_accounts_exhausted")
 }
 
 func assertErrorResponse(t *testing.T, rec *httptest.ResponseRecorder, wantType, wantCode string) {
