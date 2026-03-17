@@ -95,16 +95,12 @@ func (uc *AdminAPIKeyUseCase) Revoke(ctx context.Context, id vo.APIKeyID) error 
 
 func generateRawKey() (string, error) {
 	b := make([]byte, rawKeyRandomLen)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
+	rand.Read(b) // never fails in Go 1.22+
 	return rawKeyPrefix + hex.EncodeToString(b), nil
 }
 
 func hashRawKey(raw string) (string, error) {
-	hashBytes, err := bcrypt.GenerateFromPassword([]byte(raw), bcrypt.DefaultCost)
-	if err != nil {
-		return "", err
-	}
-	return string(hashBytes), nil
+	// bcrypt only errors if password > 72 bytes; our keys are 69 chars
+	h, err := bcrypt.GenerateFromPassword([]byte(raw), bcrypt.DefaultCost)
+	return string(h), err
 }
