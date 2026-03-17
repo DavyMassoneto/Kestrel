@@ -42,3 +42,12 @@ func (m ModelName) IsValid() bool {
 	_, ok := supportedModels[m.Resolved]
 	return ok
 }
+
+// SupportedModelIDs returns a list of all supported model identifiers.
+func SupportedModelIDs() []string {
+	ids := make([]string, 0, len(supportedModels))
+	for id := range supportedModels {
+		ids = append(ids, id)
+	}
+	return ids
+}
