@@ -3,10 +3,11 @@ package vo
 // ChatRequest is the domain representation — neither OpenAI nor Claude.
 // The handler translates OpenAI -> ChatRequest. The Claude adapter translates ChatRequest -> Claude.
 type ChatRequest struct {
-	Model       ModelName
-	Messages    []Message
-	MaxTokens   int
-	Temperature *float64
+	Model        ModelName
+	Messages     []Message
+	MaxTokens    int
+	Temperature  *float64
+	SystemPrompt string
 }
 
 // ChatResponse is the domain representation of a chat completion response.
@@ -54,8 +55,9 @@ type Message struct {
 
 // ContentBlock represents a block of content within a message.
 type ContentBlock struct {
-	Type string // "text", "image", "tool_use", "tool_result"
-	Text string // for type "text"
+	Type       string // "text", "image", "tool_use", "tool_result"
+	Text       string // for type "text"
+	ToolCallID string // for type "tool_result"
 }
 
 // Usage tracks token consumption.
