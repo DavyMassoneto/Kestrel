@@ -1,0 +1,15 @@
+# Build artifacts
+/kestrel
+/kestrel.exe
+cmd/kestrel/web/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Test
+coverage.out
+
+# Data
+data/

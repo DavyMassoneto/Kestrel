@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -152,6 +154,26 @@ func main() {
 	r.Get("/health", healthHandler.ServeHTTP)
 
 	adminHandler.RegisterRoutes(r)
+
+	// --- Frontend SPA ---
+	webSubFS, err := fs.Sub(webFS, "web/dist")
+	if err != nil {
+		log.Error("failed to load embedded frontend", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	fileServer := http.FileServer(http.FS(webSubFS))
+	r.Handle("/app/*", http.StripPrefix("/app", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// SPA fallback: if the file doesn't exist, serve index.html
+		path := strings.TrimPrefix(req.URL.Path, "/")
+		if path == "" {
+			path = "index.html"
+		}
+		if _, err := fs.Stat(webSubFS, path); err != nil {
+			req.URL.Path = "/"
+		}
+		fileServer.ServeHTTP(w, req)
+	})))
+	r.Get("/app", http.RedirectHandler("/app/", http.StatusMovedPermanently).ServeHTTP)
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(middleware.NewLogging(requestLogRepo))
