@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/DavyMassoneto/Kestrel/internal/adapter/middleware"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/sse"
 	"github.com/DavyMassoneto/Kestrel/internal/domain/vo"
 )
@@ -66,7 +67,15 @@ func (h *ChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Delegate to use case
+	// 5. Check model access
+	if apiKey := middleware.APIKeyFromContext(r.Context()); apiKey != nil {
+		if !apiKey.IsModelAllowed(chatReq.Model.Raw) {
+			writeError(w, http.StatusForbidden, "forbidden", "model_not_allowed", "you do not have access to this model")
+			return
+		}
+	}
+
+	// 6. Delegate to use case
 	isStream := openaiReq.Stream != nil && *openaiReq.Stream
 	if isStream {
 		events, err := h.streamExecutor.Execute(r.Context(), chatReq)

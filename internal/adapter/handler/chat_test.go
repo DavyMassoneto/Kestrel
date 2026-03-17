@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/handler"
+	"github.com/DavyMassoneto/Kestrel/internal/adapter/middleware"
+	"github.com/DavyMassoneto/Kestrel/internal/domain/entity"
 	"github.com/DavyMassoneto/Kestrel/internal/domain/vo"
 )
 
@@ -232,6 +234,83 @@ func TestChatHandler_StreamUseCaseError(t *testing.T) {
 	}
 
 	assertErrorResponse(t, rec, "server_error", "internal_error")
+}
+
+// --- mock authenticator for injecting APIKey into context ---
+
+type mockAuthenticator struct {
+	key *entity.APIKey
+	err error
+}
+
+func (m *mockAuthenticator) Execute(_ context.Context, _ string) (*entity.APIKey, error) {
+	return m.key, m.err
+}
+
+func TestChatHandler_ModelNotAllowed(t *testing.T) {
+	chat := &mockChatSender{
+		resp: &vo.ChatResponse{
+			ID:      "msg_123",
+			Content: "Hello!",
+			Model:   "claude-sonnet-4-20250514",
+		},
+	}
+	h := handler.NewChatHandler(chat, nil)
+
+	// Create an APIKey restricted to a different model
+	apiKey, err := entity.NewAPIKey(vo.NewAPIKeyID(), "restricted", "hash", "omni-prefix0")
+	if err != nil {
+		t.Fatalf("NewAPIKey: %v", err)
+	}
+	apiKey.SetAllowedModels([]string{"claude-opus-4-20250514"})
+
+	// Use Auth middleware to inject APIKey into context
+	authMW := middleware.Auth(&mockAuthenticator{key: apiKey})
+
+	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer omni-test-token")
+	rec := httptest.NewRecorder()
+
+	authMW(http.HandlerFunc(h.ServeHTTP)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d; want %d", rec.Code, http.StatusForbidden)
+	}
+	assertErrorResponse(t, rec, "forbidden", "model_not_allowed")
+}
+
+func TestChatHandler_ModelAllowed(t *testing.T) {
+	chat := &mockChatSender{
+		resp: &vo.ChatResponse{
+			ID:         "msg_123",
+			Content:    "Hello!",
+			Model:      "claude-sonnet-4-20250514",
+			Usage:      vo.Usage{InputTokens: 10, OutputTokens: 5},
+			StopReason: "end_turn",
+		},
+	}
+	h := handler.NewChatHandler(chat, nil)
+
+	// APIKey with allowed models including the requested model
+	apiKey, err := entity.NewAPIKey(vo.NewAPIKeyID(), "allowed", "hash", "omni-prefix0")
+	if err != nil {
+		t.Fatalf("NewAPIKey: %v", err)
+	}
+	apiKey.SetAllowedModels([]string{"claude-sonnet-4-20250514"})
+
+	authMW := middleware.Auth(&mockAuthenticator{key: apiKey})
+
+	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer omni-test-token")
+	rec := httptest.NewRecorder()
+
+	authMW(http.HandlerFunc(h.ServeHTTP)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d; want %d", rec.Code, http.StatusOK)
+	}
 }
 
 func assertErrorResponse(t *testing.T, rec *httptest.ResponseRecorder, wantType, wantCode string) {

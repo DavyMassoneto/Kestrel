@@ -66,6 +66,9 @@ func main() {
 	adminAccountUC := usecase.NewAdminAccountUseCase(accountRepo)
 	adminAPIKeyUC := usecase.NewAdminAPIKeyUseCase(apiKeyRepo)
 
+	// --- Use Cases (Auth) ---
+	authenticateUC := usecase.NewAuthenticateUseCase(apiKeyRepo)
+
 	// --- Use Cases (Proxy — Phase 2 single-account) ---
 	defaultAccount, err := entity.NewAccount(
 		vo.NewAccountID(),
@@ -100,6 +103,8 @@ func main() {
 	adminHandler.RegisterRoutes(r)
 
 	r.Route("/v1", func(r chi.Router) {
+		r.Use(middleware.NewLogging(nil))
+		r.Use(middleware.Auth(authenticateUC))
 		r.Post("/chat/completions", chatHandler.ServeHTTP)
 		r.Get("/models", modelsHandler)
 	})
