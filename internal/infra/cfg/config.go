@@ -17,6 +17,7 @@ type Config struct {
 	OAuthRedirectURI string `env:"OAUTH_REDIRECT_URI"  envDefault:"http://localhost:8080/api/oauth/callback"`
 	OAuthAuthURL     string `env:"OAUTH_AUTH_URL"       envDefault:"https://console.anthropic.com/oauth/authorize"`
 	OAuthTokenURL    string `env:"OAUTH_TOKEN_URL"      envDefault:"https://console.anthropic.com/oauth/token"`
+	OAuthScope       string `env:"OAUTH_SCOPE"          envDefault:"org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers"`
 }
 
 func Load() (Config, error) {

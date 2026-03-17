@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,13 +14,30 @@ import (
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/oauth"
 )
 
+// --- mock AccountCreator ---
+
+type mockAccountCreator struct {
+	createFunc func(ctx context.Context, input AccountCreateInput) (string, error)
+	calls      []AccountCreateInput
+}
+
+func (m *mockAccountCreator) Create(ctx context.Context, input AccountCreateInput) (string, error) {
+	m.calls = append(m.calls, input)
+	if m.createFunc != nil {
+		return m.createFunc(ctx, input)
+	}
+	return "mock-account-id", nil
+}
+
+// --- helpers ---
+
 func newTestOAuthCfg() oauth.Config {
 	return oauth.Config{
 		ClientID:    "test-client-id",
 		RedirectURI: "http://localhost:8080/api/oauth/callback",
 		AuthURL:     "https://console.anthropic.com/oauth/authorize",
 		TokenURL:    "https://console.anthropic.com/oauth/token",
-		Scope:       "openid",
+		Scope:       "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers",
 	}
 }
 
@@ -32,7 +50,6 @@ func setupTestOAuthRouter(h *OAuthHandler) *chi.Mux {
 // --- Tests ---
 
 func TestAuthorize_RedirectsToProvider(t *testing.T) {
-	// Use a mock token server (won't be called in authorize)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -40,7 +57,8 @@ func TestAuthorize_RedirectsToProvider(t *testing.T) {
 
 	cfg := newTestOAuthCfg()
 	client := oauth.NewClient(ts.Client())
-	h := NewOAuthHandler(client, cfg)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
 	r := setupTestOAuthRouter(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/oauth/authorize", nil)
@@ -67,8 +85,59 @@ func TestAuthorize_RedirectsToProvider(t *testing.T) {
 	}
 }
 
+func TestAuthorize_IncludesScopeInURL(t *testing.T) {
+	cfg := newTestOAuthCfg()
+	cfg.Scope = "org:create_api_key user:profile"
+	client := oauth.NewClient(http.DefaultClient)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
+	r := setupTestOAuthRouter(h)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/oauth/authorize", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", w.Code)
+	}
+
+	location := w.Header().Get("Location")
+	if !strings.Contains(location, "scope=") {
+		t.Fatalf("Bug #14 regression: Location missing scope parameter: %s", location)
+	}
+}
+
+func TestAuthorize_StoresStateInPendingAuth(t *testing.T) {
+	cfg := newTestOAuthCfg()
+	client := oauth.NewClient(http.DefaultClient)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
+	r := setupTestOAuthRouter(h)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/oauth/authorize", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	location := w.Header().Get("Location")
+	stateIdx := strings.Index(location, "state=")
+	if stateIdx == -1 {
+		t.Fatal("Location header missing state parameter")
+	}
+	stateVal := location[stateIdx+len("state="):]
+	if ampIdx := strings.Index(stateVal, "&"); ampIdx != -1 {
+		stateVal = stateVal[:ampIdx]
+	}
+
+	val, ok := h.pendingAuth.Load(stateVal)
+	if !ok {
+		t.Fatal("expected state to be stored in pending auth")
+	}
+	if val.(string) == "" {
+		t.Fatal("expected non-empty verifier stored with state")
+	}
+}
+
 func TestCallback_Success(t *testing.T) {
-	// Mock token endpoint
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
 		if r.FormValue("grant_type") != "authorization_code" {
@@ -88,10 +157,10 @@ func TestCallback_Success(t *testing.T) {
 	cfg := newTestOAuthCfg()
 	cfg.TokenURL = ts.URL
 	client := oauth.NewClient(ts.Client())
-	h := NewOAuthHandler(client, cfg)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
 	r := setupTestOAuthRouter(h)
 
-	// Pre-store a pending flow
 	testState := "test-state-abc"
 	h.pendingAuth.Store(testState, "test-verifier-xyz")
 
@@ -99,26 +168,29 @@ func TestCallback_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp tokenResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
+	location := w.Header().Get("Location")
+	if location != "/app/accounts" {
+		t.Fatalf("expected redirect to /app/accounts, got %q", location)
 	}
 
-	if resp.AccessToken != "at-123" {
-		t.Fatalf("expected access_token 'at-123', got %q", resp.AccessToken)
+	// Verify account was created
+	if len(creator.calls) != 1 {
+		t.Fatalf("expected 1 account creation call, got %d", len(creator.calls))
 	}
-	if resp.RefreshToken != "rt-456" {
-		t.Fatalf("expected refresh_token 'rt-456', got %q", resp.RefreshToken)
+
+	call := creator.calls[0]
+	if call.APIKey != "at-123" {
+		t.Fatalf("expected APIKey 'at-123', got %q", call.APIKey)
 	}
-	if resp.TokenType != "bearer" {
-		t.Fatalf("expected token_type 'bearer', got %q", resp.TokenType)
+	if call.BaseURL != "https://api.anthropic.com" {
+		t.Fatalf("expected BaseURL 'https://api.anthropic.com', got %q", call.BaseURL)
 	}
-	if resp.ExpiresIn != 3600 {
-		t.Fatalf("expected expires_in 3600, got %d", resp.ExpiresIn)
+	if call.Priority != 10 {
+		t.Fatalf("expected Priority 10, got %d", call.Priority)
 	}
 
 	// Verify state was consumed
@@ -130,7 +202,8 @@ func TestCallback_Success(t *testing.T) {
 func TestCallback_MissingCode(t *testing.T) {
 	cfg := newTestOAuthCfg()
 	client := oauth.NewClient(http.DefaultClient)
-	h := NewOAuthHandler(client, cfg)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
 	r := setupTestOAuthRouter(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/oauth/callback?state=some-state", nil)
@@ -145,7 +218,8 @@ func TestCallback_MissingCode(t *testing.T) {
 func TestCallback_InvalidState(t *testing.T) {
 	cfg := newTestOAuthCfg()
 	client := oauth.NewClient(http.DefaultClient)
-	h := NewOAuthHandler(client, cfg)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
 	r := setupTestOAuthRouter(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/oauth/callback?code=some-code&state=unknown-state", nil)
@@ -169,10 +243,10 @@ func TestCallback_InvalidState(t *testing.T) {
 func TestCallback_ExpiredState(t *testing.T) {
 	cfg := newTestOAuthCfg()
 	client := oauth.NewClient(http.DefaultClient)
-	h := NewOAuthHandler(client, cfg)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
 	r := setupTestOAuthRouter(h)
 
-	// Never stored this state — simulates expiry
 	req := httptest.NewRequest(http.MethodGet, "/api/oauth/callback?code=some-code&state=expired-state", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -189,7 +263,6 @@ func TestCallback_ExpiredState(t *testing.T) {
 }
 
 func TestCallback_ExchangeError(t *testing.T) {
-	// Mock token endpoint that returns an OAuth error
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -200,7 +273,8 @@ func TestCallback_ExchangeError(t *testing.T) {
 	cfg := newTestOAuthCfg()
 	cfg.TokenURL = ts.URL
 	client := oauth.NewClient(ts.Client())
-	h := NewOAuthHandler(client, cfg)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
 	r := setupTestOAuthRouter(h)
 
 	h.pendingAuth.Store("valid-state", "some-verifier")
@@ -219,10 +293,40 @@ func TestCallback_ExchangeError(t *testing.T) {
 	}
 }
 
+func TestCallback_AccountCreationError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"access_token":"at-123","refresh_token":"rt-456","token_type":"bearer","expires_in":3600}`)
+	}))
+	defer ts.Close()
+
+	cfg := newTestOAuthCfg()
+	cfg.TokenURL = ts.URL
+	client := oauth.NewClient(ts.Client())
+	creator := &mockAccountCreator{
+		createFunc: func(_ context.Context, _ AccountCreateInput) (string, error) {
+			return "", fmt.Errorf("database is full")
+		},
+	}
+	h := NewOAuthHandler(client, cfg, creator)
+	r := setupTestOAuthRouter(h)
+
+	h.pendingAuth.Store("state-x", "verifier-x")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/oauth/callback?code=test-code&state=state-x", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
 func TestCallback_MissingState(t *testing.T) {
 	cfg := newTestOAuthCfg()
 	client := oauth.NewClient(http.DefaultClient)
-	h := NewOAuthHandler(client, cfg)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
 	r := setupTestOAuthRouter(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/oauth/callback?code=some-code", nil)
@@ -237,7 +341,8 @@ func TestCallback_MissingState(t *testing.T) {
 func TestCallback_ProviderError(t *testing.T) {
 	cfg := newTestOAuthCfg()
 	client := oauth.NewClient(http.DefaultClient)
-	h := NewOAuthHandler(client, cfg)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
 	r := setupTestOAuthRouter(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/oauth/callback?error=access_denied&error_description=user+denied", nil)
@@ -261,7 +366,8 @@ func TestCallback_ProviderError(t *testing.T) {
 func TestCallback_ProviderErrorNoDescription(t *testing.T) {
 	cfg := newTestOAuthCfg()
 	client := oauth.NewClient(http.DefaultClient)
-	h := NewOAuthHandler(client, cfg)
+	creator := &mockAccountCreator{}
+	h := NewOAuthHandler(client, cfg, creator)
 	r := setupTestOAuthRouter(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/oauth/callback?error=server_error", nil)
@@ -276,37 +382,5 @@ func TestCallback_ProviderErrorNoDescription(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&body)
 	if body.Error.Message != "authorization denied by provider" {
 		t.Fatalf("expected default description, got %q", body.Error.Message)
-	}
-}
-
-func TestAuthorize_StoresStateInPendingAuth(t *testing.T) {
-	cfg := newTestOAuthCfg()
-	client := oauth.NewClient(http.DefaultClient)
-	h := NewOAuthHandler(client, cfg)
-	r := setupTestOAuthRouter(h)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/oauth/authorize", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	// Extract state from Location header
-	location := w.Header().Get("Location")
-	// Find state= in the URL
-	stateIdx := strings.Index(location, "state=")
-	if stateIdx == -1 {
-		t.Fatal("Location header missing state parameter")
-	}
-	stateVal := location[stateIdx+len("state="):]
-	if ampIdx := strings.Index(stateVal, "&"); ampIdx != -1 {
-		stateVal = stateVal[:ampIdx]
-	}
-
-	// Verify state is stored in pending auth
-	val, ok := h.pendingAuth.Load(stateVal)
-	if !ok {
-		t.Fatal("expected state to be stored in pending auth")
-	}
-	if val.(string) == "" {
-		t.Fatal("expected non-empty verifier stored with state")
 	}
 }

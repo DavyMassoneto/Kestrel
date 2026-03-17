@@ -71,6 +71,24 @@ func (a *streamAdapter) Execute(ctx context.Context, apiKeyID vo.APIKeyID, chatR
 	}, nil
 }
 
+// oauthAccountAdapter adapts AdminAccountUseCase to handler.AccountCreator.
+type oauthAccountAdapter struct {
+	uc *usecase.AdminAccountUseCase
+}
+
+func (a *oauthAccountAdapter) Create(ctx context.Context, input handler.AccountCreateInput) (string, error) {
+	acc, err := a.uc.Create(ctx, usecase.CreateAccountInput{
+		Name:     input.Name,
+		APIKey:   input.APIKey,
+		BaseURL:  input.BaseURL,
+		Priority: input.Priority,
+	})
+	if err != nil {
+		return "", err
+	}
+	return acc.ID().String(), nil
+}
+
 func toRetryDetails(retries []usecase.RetryAttempt) []handler.RetryDetail {
 	if len(retries) == 0 {
 		return nil
@@ -190,9 +208,10 @@ func main() {
 			RedirectURI: appCfg.OAuthRedirectURI,
 			AuthURL:     appCfg.OAuthAuthURL,
 			TokenURL:    appCfg.OAuthTokenURL,
+			Scope:       appCfg.OAuthScope,
 		}
 		oauthClient := oauth.NewClient(http.DefaultClient)
-		oauthHandler := handler.NewOAuthHandler(oauthClient, oauthCfg)
+		oauthHandler := handler.NewOAuthHandler(oauthClient, oauthCfg, &oauthAccountAdapter{uc: adminAccountUC})
 		oauthHandler.RegisterRoutes(r)
 		log.Info("oauth enabled", slog.String("client_id", appCfg.OAuthClientID))
 	}

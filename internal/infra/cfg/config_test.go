@@ -2,6 +2,7 @@ package cfg_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/DavyMassoneto/Kestrel/internal/infra/cfg"
@@ -107,6 +108,9 @@ func TestConfig_OAuthDefaults(t *testing.T) {
 	}
 	if c.OAuthTokenURL != "https://console.anthropic.com/oauth/token" {
 		t.Errorf("OAuthTokenURL = %q; want default", c.OAuthTokenURL)
+	}
+	if !strings.Contains(c.OAuthScope, "org:create_api_key") {
+		t.Errorf("OAuthScope = %q; want default containing org:create_api_key", c.OAuthScope)
 	}
 }
 

@@ -1,27 +1,44 @@
 package handler
 
 import (
-	"encoding/json"
+	"context"
+	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/oauth"
 )
 
+// AccountCreator creates a new account in the rotation pool.
+type AccountCreator interface {
+	Create(ctx context.Context, input AccountCreateInput) (string, error)
+}
+
+// AccountCreateInput holds fields for creating an account via OAuth.
+type AccountCreateInput struct {
+	Name     string
+	APIKey   string
+	BaseURL  string
+	Priority int
+}
+
 // OAuthHandler handles OAuth authorization flow endpoints.
 type OAuthHandler struct {
-	oauthClient *oauth.Client
-	oauthCfg    oauth.Config
-	pendingAuth sync.Map // state → verifier
+	oauthClient    *oauth.Client
+	oauthCfg       oauth.Config
+	accountCreator AccountCreator
+	pendingAuth    sync.Map // state → verifier
 }
 
 // NewOAuthHandler creates a new OAuthHandler.
-func NewOAuthHandler(client *oauth.Client, cfg oauth.Config) *OAuthHandler {
+func NewOAuthHandler(client *oauth.Client, cfg oauth.Config, creator AccountCreator) *OAuthHandler {
 	return &OAuthHandler{
-		oauthClient: client,
-		oauthCfg:    cfg,
+		oauthClient:    client,
+		oauthCfg:       cfg,
+		accountCreator: creator,
 	}
 }
 
@@ -29,15 +46,6 @@ func NewOAuthHandler(client *oauth.Client, cfg oauth.Config) *OAuthHandler {
 func (h *OAuthHandler) RegisterRoutes(r chi.Router) {
 	r.Get("/api/oauth/authorize", h.authorize)
 	r.Get("/api/oauth/callback", h.callback)
-}
-
-// --- response types ---
-
-type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
 }
 
 // --- handlers ---
@@ -97,11 +105,20 @@ func (h *OAuthHandler) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tokenResponse{
-		AccessToken:  tokens.AccessToken,
-		RefreshToken: tokens.RefreshToken,
-		TokenType:    tokens.TokenType,
-		ExpiresIn:    tokens.ExpiresIn,
+	// Create new account in the rotation pool
+	name := fmt.Sprintf("oauth-%d", time.Now().UnixMilli())
+
+	_, err = h.accountCreator.Create(r.Context(), AccountCreateInput{
+		Name:     name,
+		APIKey:   tokens.AccessToken,
+		BaseURL:  "https://api.anthropic.com",
+		Priority: 10,
 	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", "account_creation_failed", err.Error())
+		return
+	}
+
+	// Redirect to accounts page in frontend
+	http.Redirect(w, r, "/app/accounts", http.StatusFound)
 }
