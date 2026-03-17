@@ -39,6 +39,8 @@ func Auth(auth Authenticator) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), apiKeyCtxKey{}, apiKey)
+			ctx = WithAPIKeyID(ctx, apiKey.ID())
+			ctx = WithAPIKeyName(ctx, apiKey.Name())
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

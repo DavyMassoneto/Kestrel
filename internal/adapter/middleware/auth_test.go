@@ -153,6 +153,30 @@ func TestAuth_ValidToken(t *testing.T) {
 	}
 }
 
+func TestAuth_PopulatesAPIKeyIDAndName(t *testing.T) {
+	key := makeTestKey(t)
+	auth := &mockAuthenticator{key: key}
+	mw := middleware.Auth(auth)
+
+	var gotID, gotName string
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer omni-validtoken123")
+	mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotID = middleware.GetAPIKeyID(r.Context())
+		gotName = middleware.GetAPIKeyName(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rec, req)
+
+	if gotID != key.ID().String() {
+		t.Errorf("GetAPIKeyID = %q; want %q", gotID, key.ID().String())
+	}
+	if gotName != key.Name() {
+		t.Errorf("GetAPIKeyName = %q; want %q", gotName, key.Name())
+	}
+}
+
 func TestAPIKeyFromContext_NoKey(t *testing.T) {
 	key := middleware.APIKeyFromContext(context.Background())
 	if key != nil {
