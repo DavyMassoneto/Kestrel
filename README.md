@@ -17,7 +17,7 @@ Claude Code ──> Kestrel (Go proxy) ──> Anthropic API
 ## Features
 
 - **OpenAI-compatible proxy** — Claude Code connects via `/v1/chat/completions`
-- **Multi-account rotation** — automatic fallback when an account is rate-limited or exhausted (planned)
+- **Multi-account rotation** — automatic fallback when an account is rate-limited or exhausted
 - **SSE streaming** — transparent passthrough with format translation
 - **Exponential backoff** — per-account cooldown with automatic recovery
 - **SQLite persistence** — accounts and API keys with auto-migration
@@ -63,8 +63,8 @@ make build
 | `LOG_FORMAT`     | `json`                        | No       | Log format (json, pretty)            |
 | `ENCRYPTION_KEY` | —                             | Yes      | AES-256 key for encrypting API keys at rest |
 | `ADMIN_KEY`      | —                             | Yes      | Key for authenticating admin API requests (X-Admin-Key header) |
-| `CLAUDE_API_KEY` | —                             | Yes      | Default Claude API key (Phase 2 single-account mode) |
-| `CLAUDE_BASE_URL`| `https://api.anthropic.com`   | No       | Claude API base URL                  |
+| `CLAUDE_API_KEY` | —                             | Yes      | Claude API key (legacy — accounts now managed via admin API) |
+| `CLAUDE_BASE_URL`| `https://api.anthropic.com`   | No       | Claude API base URL (legacy)         |
 | `DB_PATH`        | `kestrel.db`                  | No       | SQLite database file path            |
 
 ## Endpoints Implemented
@@ -91,7 +91,7 @@ Admin endpoints require `X-Admin-Key` header.
 - **Phase 2** — Domain + Translation (entities, VOs, Claude adapter, chat handler, SSE): Done
 - **Phase 3** — SQLite + Persistence (repos, migrations, crypto, admin CRUD): Done
 - **Phase 4** — Authentication + Logging Middleware: Done
-- **Phase 5** — Multi-account + Fallback: Pending
+- **Phase 5** — Multi-account + Fallback: Done
 - **Phase 6** — Request Log persistence: Pending
 - **Phase 7** — Frontend + Deploy: Pending
 - **Phase 8** — Integration + E2E Tests: Pending

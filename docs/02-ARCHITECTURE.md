@@ -58,7 +58,6 @@ usecase/authenticate.go     → define APIKeyFinder        (1 método: FindByPre
 adapter/middleware/logging.go → define RequestLogger (1 método: LogRequest) + RequestLogEntry
 adapter/middleware/auth.go  → define Authenticator       (1 método: Execute)
 
-Planejados:
 usecase/select_account.go   → define AccountFinder      (1 método: FindAvailable)
 usecase/handle_fallback.go  → define AccountStatusWriter (2 métodos: UpdateStatus, RecordSuccess)
 usecase/manage_session.go   → define SessionReader, SessionWriter
@@ -94,14 +93,14 @@ kestrel/
 │   │
 │   ├── usecase/
 │   │   ├── ports.go                   # Interfaces compartilhadas: AccountSelector, FallbackHandler, FallbackResult, Clock, ClassifiedError, RetryAttempt, ProxyChatResult, ProxyStreamResult
-│   │   ├── proxy_chat.go              # ProxyChatUseCase (sync) + ChatSender interface (Phase 2: single account)
-│   │   ├── proxy_stream.go            # ProxyStreamUseCase (streaming) + ChatStreamer interface (Phase 2: single account)
+│   │   ├── proxy_chat.go              # ProxyChatUseCase (sync) + ChatSender interface + retry loop
+│   │   ├── proxy_stream.go            # ProxyStreamUseCase (streaming) + ChatStreamer interface + retry loop
+│   │   ├── select_account.go          # SelectAccountUseCase + AccountFinder interface
+│   │   ├── handle_fallback.go         # HandleFallbackUseCase + AccountStatusWriter interface
+│   │   ├── manage_session.go          # ManageSessionUseCase + SessionReader/SessionWriter interfaces
 │   │   ├── admin_account.go           # AdminAccountUseCase (Create, Update, List, Delete, Reset) + AccountStore interface
 │   │   ├── admin_apikey.go            # AdminAPIKeyUseCase (Create, List, Revoke) + APIKeyStore interface
-│   │   ├── authenticate.go            # AuthenticateUseCase + APIKeyFinder interface
-│   │   ├── select_account.go          # (planned — Phase 5)
-│   │   ├── handle_fallback.go         # (planned — Phase 5)
-│   │   └── manage_session.go          # (planned — Phase 5)
+│   │   └── authenticate.go            # AuthenticateUseCase + APIKeyFinder interface
 │   │
 │   ├── adapter/
 │   │   ├── handler/
@@ -129,8 +128,8 @@ kestrel/
 │   │   ├── crypto/
 │   │   │   └── aes.go                # AES-256-GCM encrypt/decrypt para API keys at rest
 │   │   │
-│   │   ├── session/                   # (planned — Phase 5)
-│   │   │   └── memory.go             # Implementa SessionReader, SessionWriter (in-memory com RWMutex)
+│   │   ├── session/
+│   │   │   └── memory.go             # MemorySessionStore (in-memory com RWMutex + cleanup goroutine)
 │   │   │
 │   │   └── sqlite/
 │   │       ├── db.go                  # Conexão: 1 writer + N readers, WAL, busy_timeout

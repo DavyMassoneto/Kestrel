@@ -155,7 +155,7 @@ Arquivos de teste:
 
 ---
 
-## Fase 5 — Multi-conta + Fallback
+## Fase 5 — Multi-conta + Fallback [DONE]
 
 **Objetivo:** Rotação automática quando conta esgota.
 
