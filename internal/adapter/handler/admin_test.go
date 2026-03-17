@@ -422,3 +422,405 @@ func TestAdmin_RevokeAPIKey_NotFound(t *testing.T) {
 		t.Errorf("status = %d, want 404", w.Code)
 	}
 }
+
+// --- mock request log reader ---
+
+type mockRequestLogReader struct {
+	entries []middleware.RequestLogEntry
+	total   int
+	err     error
+	filters middleware.RequestLogFilters
+}
+
+func (m *mockRequestLogReader) FindAll(_ context.Context, filters middleware.RequestLogFilters) ([]middleware.RequestLogEntry, int, error) {
+	m.filters = filters
+	return m.entries, m.total, m.err
+}
+
+func setupAdminRouterWithLogs(adminKey string, logReader middleware.RequestLogReader) *chi.Mux {
+	accStore := newMockAccountStore()
+	keyStore := newMockAPIKeyStore()
+
+	accUC := usecase.NewAdminAccountUseCase(accStore)
+	keyUC := usecase.NewAdminAPIKeyUseCase(keyStore)
+
+	adminHandler := NewAdminHandler(accUC, keyUC, logReader, adminKey)
+
+	r := chi.NewRouter()
+	adminHandler.RegisterRoutes(r)
+	return r
+}
+
+// --- request log tests ---
+
+func TestAdmin_ListLogs_Defaults(t *testing.T) {
+	logReader := &mockRequestLogReader{
+		entries: []middleware.RequestLogEntry{
+			{RequestID: "req_1", Status: 200, Model: "claude-sonnet-4-20250514", LatencyMs: 500, CreatedAt: "2026-03-17T12:00:00Z"},
+			{RequestID: "req_2", Status: 500, Model: "claude-sonnet-4-20250514", LatencyMs: 1200, CreatedAt: "2026-03-17T12:01:00Z"},
+		},
+		total: 2,
+	}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	data, ok := resp["data"].([]interface{})
+	if !ok {
+		t.Fatal("response should have 'data' array")
+	}
+	if len(data) != 2 {
+		t.Errorf("data len = %d, want 2", len(data))
+	}
+	if resp["total"] != float64(2) {
+		t.Errorf("total = %v, want 2", resp["total"])
+	}
+	if resp["limit"] != float64(50) {
+		t.Errorf("limit = %v, want 50", resp["limit"])
+	}
+	if resp["offset"] != float64(0) {
+		t.Errorf("offset = %v, want 0", resp["offset"])
+	}
+
+	// Verify default filters passed to reader
+	if logReader.filters.Limit != 50 {
+		t.Errorf("filters.Limit = %d, want 50", logReader.filters.Limit)
+	}
+	if logReader.filters.Offset != 0 {
+		t.Errorf("filters.Offset = %d, want 0", logReader.filters.Offset)
+	}
+}
+
+func TestAdmin_ListLogs_Pagination(t *testing.T) {
+	logReader := &mockRequestLogReader{
+		entries: []middleware.RequestLogEntry{
+			{RequestID: "req_3", Status: 200},
+		},
+		total: 100,
+	}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?limit=10&offset=5", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp["limit"] != float64(10) {
+		t.Errorf("limit = %v, want 10", resp["limit"])
+	}
+	if resp["offset"] != float64(5) {
+		t.Errorf("offset = %v, want 5", resp["offset"])
+	}
+	if logReader.filters.Limit != 10 {
+		t.Errorf("filters.Limit = %d, want 10", logReader.filters.Limit)
+	}
+	if logReader.filters.Offset != 5 {
+		t.Errorf("filters.Offset = %d, want 5", logReader.filters.Offset)
+	}
+}
+
+func TestAdmin_ListLogs_LimitCappedAt500(t *testing.T) {
+	logReader := &mockRequestLogReader{total: 0}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?limit=1000", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp["limit"] != float64(500) {
+		t.Errorf("limit = %v, want 500", resp["limit"])
+	}
+}
+
+func TestAdmin_ListLogs_NegativeLimitDefaultsTo50(t *testing.T) {
+	logReader := &mockRequestLogReader{total: 0}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?limit=-1", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp["limit"] != float64(50) {
+		t.Errorf("limit = %v, want 50", resp["limit"])
+	}
+}
+
+func TestAdmin_ListLogs_FilterByStatus(t *testing.T) {
+	logReader := &mockRequestLogReader{
+		entries: []middleware.RequestLogEntry{
+			{RequestID: "req_ok", Status: 200},
+		},
+		total: 1,
+	}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?status=200", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	if logReader.filters.Status == nil || *logReader.filters.Status != 200 {
+		t.Errorf("filters.Status = %v, want 200", logReader.filters.Status)
+	}
+}
+
+func TestAdmin_ListLogs_FilterByAccountID(t *testing.T) {
+	logReader := &mockRequestLogReader{total: 0}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?account_id=acc_123", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	if logReader.filters.AccountID == nil || *logReader.filters.AccountID != "acc_123" {
+		t.Errorf("filters.AccountID = %v, want acc_123", logReader.filters.AccountID)
+	}
+}
+
+func TestAdmin_ListLogs_FilterByAPIKeyID(t *testing.T) {
+	logReader := &mockRequestLogReader{total: 0}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?api_key_id=key_456", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	if logReader.filters.APIKeyID == nil || *logReader.filters.APIKeyID != "key_456" {
+		t.Errorf("filters.APIKeyID = %v, want key_456", logReader.filters.APIKeyID)
+	}
+}
+
+func TestAdmin_ListLogs_FilterByModel(t *testing.T) {
+	logReader := &mockRequestLogReader{total: 0}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?model=claude-sonnet-4-20250514", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	if logReader.filters.Model == nil || *logReader.filters.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("filters.Model = %v, want claude-sonnet-4-20250514", logReader.filters.Model)
+	}
+}
+
+func TestAdmin_ListLogs_FilterByDateRange(t *testing.T) {
+	logReader := &mockRequestLogReader{total: 0}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?from=2026-03-16T00:00:00Z&to=2026-03-17T23:59:59Z", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	expectedFrom := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)
+	expectedTo := time.Date(2026, 3, 17, 23, 59, 59, 0, time.UTC)
+
+	if logReader.filters.From == nil || !logReader.filters.From.Equal(expectedFrom) {
+		t.Errorf("filters.From = %v, want %v", logReader.filters.From, expectedFrom)
+	}
+	if logReader.filters.To == nil || !logReader.filters.To.Equal(expectedTo) {
+		t.Errorf("filters.To = %v, want %v", logReader.filters.To, expectedTo)
+	}
+}
+
+func TestAdmin_ListLogs_InvalidLimit(t *testing.T) {
+	logReader := &mockRequestLogReader{}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?limit=abc", "secret", nil)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestAdmin_ListLogs_InvalidOffset(t *testing.T) {
+	logReader := &mockRequestLogReader{}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?offset=abc", "secret", nil)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestAdmin_ListLogs_InvalidStatus(t *testing.T) {
+	logReader := &mockRequestLogReader{}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?status=abc", "secret", nil)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestAdmin_ListLogs_InvalidFromDate(t *testing.T) {
+	logReader := &mockRequestLogReader{}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?from=not-a-date", "secret", nil)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestAdmin_ListLogs_InvalidToDate(t *testing.T) {
+	logReader := &mockRequestLogReader{}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs?to=not-a-date", "secret", nil)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestAdmin_ListLogs_ReaderError(t *testing.T) {
+	logReader := &mockRequestLogReader{err: errors.New("db error")}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs", "secret", nil)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestAdmin_ListLogs_EmptyResult(t *testing.T) {
+	logReader := &mockRequestLogReader{
+		entries: []middleware.RequestLogEntry{},
+		total:   0,
+	}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	data, ok := resp["data"].([]interface{})
+	if !ok {
+		t.Fatal("response should have 'data' array")
+	}
+	if len(data) != 0 {
+		t.Errorf("data len = %d, want 0", len(data))
+	}
+	if resp["total"] != float64(0) {
+		t.Errorf("total = %v, want 0", resp["total"])
+	}
+}
+
+func TestAdmin_ListLogs_ResponseFields(t *testing.T) {
+	logReader := &mockRequestLogReader{
+		entries: []middleware.RequestLogEntry{
+			{
+				RequestID:    "req_abc",
+				APIKeyName:   "my-key",
+				AccountName:  "acc-1",
+				Model:        "claude-sonnet-4-20250514",
+				Status:       200,
+				InputTokens:  100,
+				OutputTokens: 50,
+				LatencyMs:    350,
+				Retries:      1,
+				Stream:       true,
+				CreatedAt:    "2026-03-17T12:00:00Z",
+			},
+		},
+		total: 1,
+	}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs", "secret", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	data := resp["data"].([]interface{})
+	entry := data[0].(map[string]interface{})
+
+	if entry["id"] != "req_abc" {
+		t.Errorf("id = %v", entry["id"])
+	}
+	if entry["api_key_name"] != "my-key" {
+		t.Errorf("api_key_name = %v", entry["api_key_name"])
+	}
+	if entry["account_name"] != "acc-1" {
+		t.Errorf("account_name = %v", entry["account_name"])
+	}
+	if entry["model"] != "claude-sonnet-4-20250514" {
+		t.Errorf("model = %v", entry["model"])
+	}
+	if entry["status"] != float64(200) {
+		t.Errorf("status = %v", entry["status"])
+	}
+	if entry["input_tokens"] != float64(100) {
+		t.Errorf("input_tokens = %v", entry["input_tokens"])
+	}
+	if entry["output_tokens"] != float64(50) {
+		t.Errorf("output_tokens = %v", entry["output_tokens"])
+	}
+	if entry["latency_ms"] != float64(350) {
+		t.Errorf("latency_ms = %v", entry["latency_ms"])
+	}
+	if entry["retries"] != float64(1) {
+		t.Errorf("retries = %v", entry["retries"])
+	}
+	if entry["stream"] != true {
+		t.Errorf("stream = %v", entry["stream"])
+	}
+	if entry["created_at"] != "2026-03-17T12:00:00Z" {
+		t.Errorf("created_at = %v", entry["created_at"])
+	}
+}
+
+func TestAdmin_ListLogs_RequiresAuth(t *testing.T) {
+	logReader := &mockRequestLogReader{}
+	r := setupAdminRouterWithLogs("secret", logReader)
+
+	w := doRequest(r, http.MethodGet, "/admin/logs", "", nil)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
