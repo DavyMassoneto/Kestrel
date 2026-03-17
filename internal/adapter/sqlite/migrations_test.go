@@ -72,6 +72,48 @@ func TestRunMigrations_CreatesTablesAndIndexes(t *testing.T) {
 	}
 }
 
+func TestRunMigrations_OAuthColumnsExist(t *testing.T) {
+	db := tempDB(t)
+
+	if err := sqlite.RunMigrations(db); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	// Verify OAuth columns exist by inserting a row with all columns
+	_, err := db.Exec(`INSERT INTO accounts (id, name, api_key, base_url, status, priority, created_at, updated_at, auth_type, access_token, refresh_token, token_expires_at, oauth_email, oauth_scope)
+		VALUES ('acc-1', 'test', 'key', 'https://api.anthropic.com', 'active', 0, datetime('now'), datetime('now'), 'oauth', 'access-tok', 'refresh-tok', '2026-01-01T00:00:00Z', 'user@test.com', 'org:read')`)
+	if err != nil {
+		t.Fatalf("insert with OAuth columns: %v", err)
+	}
+
+	// Verify auth_type default is 'api_key'
+	_, err = db.Exec(`INSERT INTO accounts (id, name, api_key, base_url, created_at, updated_at)
+		VALUES ('acc-2', 'default-auth', 'key2', 'https://api.anthropic.com', datetime('now'), datetime('now'))`)
+	if err != nil {
+		t.Fatalf("insert with default auth_type: %v", err)
+	}
+
+	var authType string
+	err = db.QueryRow("SELECT auth_type FROM accounts WHERE id = 'acc-2'").Scan(&authType)
+	if err != nil {
+		t.Fatalf("query auth_type: %v", err)
+	}
+	if authType != "api_key" {
+		t.Errorf("default auth_type = %q; want api_key", authType)
+	}
+
+	// Verify nullable OAuth columns default to NULL
+	var accessToken, refreshToken, tokenExpiresAt, email, scope *string
+	err = db.QueryRow("SELECT access_token, refresh_token, token_expires_at, oauth_email, oauth_scope FROM accounts WHERE id = 'acc-2'").
+		Scan(&accessToken, &refreshToken, &tokenExpiresAt, &email, &scope)
+	if err != nil {
+		t.Fatalf("query nullable columns: %v", err)
+	}
+	if accessToken != nil || refreshToken != nil || tokenExpiresAt != nil || email != nil || scope != nil {
+		t.Error("nullable OAuth columns should default to NULL")
+	}
+}
+
 func TestRunMigrations_Idempotent(t *testing.T) {
 	db := tempDB(t)
 
@@ -89,8 +131,8 @@ func TestRunMigrations_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 3 {
-		t.Errorf("expected 3 migrations recorded, got %d", count)
+	if count != 4 {
+		t.Errorf("expected 4 migrations recorded, got %d", count)
 	}
 }
 
@@ -107,7 +149,7 @@ func TestRunMigrations_TracksVersions(t *testing.T) {
 	}
 	defer rows.Close()
 
-	expected := []string{"001_accounts.sql", "002_apikeys.sql", "003_request_log.sql"}
+	expected := []string{"001_accounts.sql", "002_apikeys.sql", "003_request_log.sql", "004_oauth_accounts.sql"}
 	var got []string
 	for rows.Next() {
 		var v string
@@ -155,7 +197,7 @@ func TestRunMigrations_CorruptedMigrationsTable(t *testing.T) {
 	}
 }
 
-func TestRunMigrations_InvalidMigrationSQL(t *testing.T) {
+func TestRunMigrations_RerunAfterClearFails(t *testing.T) {
 	db := tempDB(t)
 
 	// First, run normal migrations
@@ -163,18 +205,19 @@ func TestRunMigrations_InvalidMigrationSQL(t *testing.T) {
 		t.Fatalf("first run: %v", err)
 	}
 
-	// Clear the schema_migrations to re-run, but corrupt the accounts table
-	// so that re-running migration would fail at exec stage
+	// Clear the schema_migrations to simulate version tracking loss
 	_, err := db.Exec(`DELETE FROM schema_migrations`)
 	if err != nil {
 		t.Fatalf("delete migrations: %v", err)
 	}
 
-	// The 001_accounts.sql uses CREATE TABLE IF NOT EXISTS, so it won't fail.
-	// This test verifies idempotent behavior — migration SQL should still succeed.
+	// Re-running should fail because ALTER TABLE ADD COLUMN (migration 004)
+	// cannot be re-applied when columns already exist.
+	// This is expected — the migration system relies on schema_migrations
+	// tracking to prevent re-execution.
 	err = sqlite.RunMigrations(db)
-	if err != nil {
-		t.Fatalf("re-run after clearing versions should succeed: %v", err)
+	if err == nil {
+		t.Fatal("expected error when re-running migrations with ALTER TABLE columns already present")
 	}
 }
 
