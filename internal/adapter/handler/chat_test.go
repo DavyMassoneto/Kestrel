@@ -1,9 +1,11 @@
 package handler_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -346,6 +348,133 @@ func TestChatHandler_ModelAllowed(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d; want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestChatHandler_NonStreaming_LogsRetryDetails(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	slog.SetDefault(logger)
+
+	chat := &mockChatExecutor{
+		result: handler.ChatResult{
+			Response: &vo.ChatResponse{
+				ID:         "msg_123",
+				Content:    "Hello!",
+				Model:      "claude-sonnet-4-20250514",
+				Usage:      vo.Usage{InputTokens: 10, OutputTokens: 5},
+				StopReason: "end_turn",
+			},
+			RetryDetails: []handler.RetryDetail{
+				{AccountID: "acc-1", Classification: "rate_limited", RetryIndex: 0},
+				{AccountID: "acc-2", Classification: "overloaded", RetryIndex: 1},
+			},
+			Retries: 2,
+		},
+	}
+	h := handler.NewChatHandler(chat, nil)
+
+	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	serveWithAuth(h, apiKeyForTest(t), rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want %d", rec.Code, http.StatusOK)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "acc-1") {
+		t.Error("expected log to contain account_id acc-1")
+	}
+	if !strings.Contains(logs, "acc-2") {
+		t.Error("expected log to contain account_id acc-2")
+	}
+	if !strings.Contains(logs, "rate_limited") {
+		t.Error("expected log to contain classification rate_limited")
+	}
+	if !strings.Contains(logs, "overloaded") {
+		t.Error("expected log to contain classification overloaded")
+	}
+	if !strings.Contains(logs, "fallback retry") {
+		t.Error("expected log message 'fallback retry'")
+	}
+}
+
+func TestChatHandler_Streaming_LogsRetryDetails(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	slog.SetDefault(logger)
+
+	events := make(chan vo.StreamEvent, 2)
+	events <- vo.StreamEvent{Type: vo.EventStart}
+	events <- vo.StreamEvent{Type: vo.EventStop}
+	close(events)
+
+	stream := &mockStreamExecutor{
+		result: handler.StreamResult{
+			Events: events,
+			RetryDetails: []handler.RetryDetail{
+				{AccountID: "acc-3", Classification: "auth_error", RetryIndex: 0},
+			},
+			Retries: 1,
+		},
+	}
+	h := handler.NewChatHandler(nil, stream)
+
+	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	serveWithAuth(h, apiKeyForTest(t), rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want %d", rec.Code, http.StatusOK)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "acc-3") {
+		t.Error("expected log to contain account_id acc-3")
+	}
+	if !strings.Contains(logs, "auth_error") {
+		t.Error("expected log to contain classification auth_error")
+	}
+	if !strings.Contains(logs, "fallback retry") {
+		t.Error("expected log message 'fallback retry'")
+	}
+}
+
+func TestChatHandler_NoRetries_NoLog(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	slog.SetDefault(logger)
+
+	chat := &mockChatExecutor{
+		result: handler.ChatResult{
+			Response: &vo.ChatResponse{
+				ID:         "msg_123",
+				Content:    "Hello!",
+				Model:      "claude-sonnet-4-20250514",
+				Usage:      vo.Usage{InputTokens: 10, OutputTokens: 5},
+				StopReason: "end_turn",
+			},
+		},
+	}
+	h := handler.NewChatHandler(chat, nil)
+
+	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	serveWithAuth(h, apiKeyForTest(t), rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want %d", rec.Code, http.StatusOK)
+	}
+
+	if strings.Contains(buf.String(), "fallback retry") {
+		t.Error("expected no fallback retry log when no retries occurred")
 	}
 }
 

@@ -43,10 +43,11 @@ func (a *chatAdapter) Execute(ctx context.Context, apiKeyID vo.APIKeyID, chatReq
 		return handler.ChatResult{}, err
 	}
 	return handler.ChatResult{
-		Response:    result.Response,
-		AccountID:   result.AccountID,
-		AccountName: result.AccountName,
-		Retries:     len(result.Retries),
+		Response:     result.Response,
+		AccountID:    result.AccountID,
+		AccountName:  result.AccountName,
+		Retries:      len(result.Retries),
+		RetryDetails: toRetryDetails(result.Retries),
 	}, nil
 }
 
@@ -61,11 +62,27 @@ func (a *streamAdapter) Execute(ctx context.Context, apiKeyID vo.APIKeyID, chatR
 		return handler.StreamResult{}, err
 	}
 	return handler.StreamResult{
-		Events:      result.Events,
-		AccountID:   result.AccountID,
-		AccountName: result.AccountName,
-		Retries:     len(result.Retries),
+		Events:       result.Events,
+		AccountID:    result.AccountID,
+		AccountName:  result.AccountName,
+		Retries:      len(result.Retries),
+		RetryDetails: toRetryDetails(result.Retries),
 	}, nil
+}
+
+func toRetryDetails(retries []usecase.RetryAttempt) []handler.RetryDetail {
+	if len(retries) == 0 {
+		return nil
+	}
+	details := make([]handler.RetryDetail, len(retries))
+	for i, r := range retries {
+		details[i] = handler.RetryDetail{
+			AccountID:      r.AccountID.String(),
+			Classification: string(r.Classification),
+			RetryIndex:     r.RetryIndex,
+		}
+	}
+	return details
 }
 
 func main() {

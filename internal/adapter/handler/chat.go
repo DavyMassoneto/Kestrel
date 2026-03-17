@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/middleware"
@@ -15,12 +16,20 @@ import (
 
 const maxBodySize = 10 << 20 // 10MB
 
+// RetryDetail records a single fallback attempt for observability.
+type RetryDetail struct {
+	AccountID      string
+	Classification string
+	RetryIndex     int
+}
+
 // ChatResult encapsulates a chat response for the handler.
 type ChatResult struct {
-	Response    *vo.ChatResponse
-	AccountID   string
-	AccountName string
-	Retries     int
+	Response     *vo.ChatResponse
+	AccountID    string
+	AccountName  string
+	Retries      int
+	RetryDetails []RetryDetail
 }
 
 // ChatExecutor executes a synchronous chat request.
@@ -30,10 +39,11 @@ type ChatExecutor interface {
 
 // StreamResult encapsulates a streaming response for the handler.
 type StreamResult struct {
-	Events      <-chan vo.StreamEvent
-	AccountID   string
-	AccountName string
-	Retries     int
+	Events       <-chan vo.StreamEvent
+	AccountID    string
+	AccountName  string
+	Retries      int
+	RetryDetails []RetryDetail
 }
 
 // StreamExecutor executes a streaming chat request.
@@ -125,6 +135,7 @@ func (h *ChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ld.AccountName = result.AccountName
 			ld.Retries = result.Retries
 		}
+		logRetryDetails(result.RetryDetails)
 		h.sseWriter.Write(r.Context(), w, result.Events, func(event vo.StreamEvent) []byte {
 			if ld != nil && event.Usage != nil {
 				ld.InputTokens = event.Usage.InputTokens
@@ -151,6 +162,7 @@ func (h *ChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				ld.OutputTokens = result.Response.Usage.OutputTokens
 			}
 		}
+		logRetryDetails(result.RetryDetails)
 		openaiResp := DomainToOpenAI(result.Response)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(openaiResp)
@@ -165,6 +177,16 @@ type errorDetail struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Code    string `json:"code"`
+}
+
+func logRetryDetails(details []RetryDetail) {
+	for _, d := range details {
+		slog.Info("fallback retry",
+			"account_id", d.AccountID,
+			"classification", d.Classification,
+			"retry_index", d.RetryIndex,
+		)
+	}
 }
 
 func mapUseCaseError(err error) (int, string) {
