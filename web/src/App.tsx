@@ -13,6 +13,7 @@ const Dashboard = lazy(() => import('@/routes/Dashboard'))
 const Accounts = lazy(() => import('@/routes/Accounts'))
 const AccountForm = lazy(() => import('@/routes/AccountForm'))
 const ApiKeys = lazy(() => import('@/routes/ApiKeys'))
+const ApiKeyForm = lazy(() => import('@/routes/ApiKeyForm'))
 const Logs = lazy(() => import('@/routes/Logs'))
 
 const queryClient = new QueryClient({
@@ -96,6 +97,14 @@ const router = createBrowserRouter(
           element: (
             <RouteWrapper>
               <ApiKeys />
+            </RouteWrapper>
+          ),
+        },
+        {
+          path: 'keys/new',
+          element: (
+            <RouteWrapper>
+              <ApiKeyForm />
             </RouteWrapper>
           ),
         },
