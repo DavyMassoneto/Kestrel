@@ -1,4 +1,4 @@
-# OmniRouter Go — Índice de Documentação
+# Kestrel — Índice de Documentação
 
 Reconstrução do OmniRoute em Go, focado em performance extrema.
 Escopo v1: apenas Claude, multi-conta com rotação por quota.
@@ -19,7 +19,7 @@ Escopo v1: apenas Claude, multi-conta com rotação por quota.
 
 ## Decisões rápidas
 
-- **Linguagem:** Go 1.22+
+- **Linguagem:** Go 1.25+
 - **Arquitetura:** Clean Architecture + SOLID
 - **Router:** chi
 - **DB:** SQLite (modernc.org/sqlite, pure Go)

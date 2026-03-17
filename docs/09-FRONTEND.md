@@ -1,4 +1,4 @@
-# OmniRouter Go — Frontend (SPA)
+# Kestrel — Frontend (SPA)
 
 ## Stack
 
@@ -96,7 +96,7 @@ web/
 ### Dashboard
 ```
 ┌─────────────────────────────────────────────────┐
-│  OmniRouter                                     │
+│  Kestrel                                     │
 ├──────────┬──────────────────────────────────────┤
 │          │                                      │
 │ Dashboard│  ┌──────┐ ┌──────┐ ┌──────┐         │
@@ -175,12 +175,12 @@ build-web:
 	cd web && npm run build
 
 build: build-web
-	go build -o omnirouter ./cmd/omnirouter
+	go build -o kestrel ./cmd/kestrel
 ```
 
 ### Embed no binário
 ```go
-// cmd/omnirouter/embed.go
+// cmd/kestrel/embed.go
 package main
 
 import "embed"
@@ -189,7 +189,7 @@ import "embed"
 var webFS embed.FS
 ```
 
-> **Nota:** O arquivo `embed.go` fica em `cmd/omnirouter/` e o build copia `web/dist` para `cmd/omnirouter/web/dist` via Makefile antes de compilar.
+> **Nota:** O arquivo `embed.go` fica em `cmd/kestrel/` e o build copia `web/dist` para `cmd/kestrel/web/dist` via Makefile antes de compilar.
 
 ```go
 // Router setup
@@ -234,7 +234,7 @@ interface StoredAuth {
   adminKey: string;
 }
 
-const STORAGE_KEY = 'omnirouter_auth';
+const STORAGE_KEY = 'kestrel_auth';
 const CURRENT_VERSION = 1;
 
 function getAdminKey(): string | null {
@@ -267,7 +267,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (res.status === 401 || res.status === 403) {
     // Admin key inválida ou ausente — dispara evento para UI
-    window.dispatchEvent(new CustomEvent('omnirouter:auth_error'));
+    window.dispatchEvent(new CustomEvent('kestrel:auth_error'));
     throw new AuthError('Admin key inválida ou ausente');
   }
 
@@ -281,10 +281,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 ```
 
 Fluxo de autenticação:
-- Admin key armazenada em `localStorage` com schema versionado (`omnirouter_auth`)
+- Admin key armazenada em `localStorage` com schema versionado (`kestrel_auth`)
 - Se não houver key configurada: tela de setup inicial pedindo a key
 - Se key retornar 401/403: modal/banner pedindo reconfiguração
-- O componente `App.tsx` escuta o evento `omnirouter:auth_error` e exibe o prompt de configuração
+- O componente `App.tsx` escuta o evento `kestrel:auth_error` e exibe o prompt de configuração
 
 > **Risco conhecido (v1):** Admin key em localStorage é acessível via XSS. Aceitável para painel admin local. Produção futura: migrar para httpOnly cookie com session-based auth.
 
@@ -402,7 +402,7 @@ Fase 7 — Frontend + Deploy
 
 Arquivos:
   web/   (toda a estrutura acima)
-  cmd/omnirouter/embed.go  (embed.FS)
+  cmd/kestrel/embed.go  (embed.FS)
   Dockerfile  (multi-stage: node build + go build)
   docker-compose.yml
 ```

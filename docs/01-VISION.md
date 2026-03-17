@@ -1,4 +1,4 @@
-# OmniRouter Go — Visão do Projeto
+# Kestrel — Visão do Projeto
 
 ## O que é
 
@@ -41,7 +41,7 @@ usado como API gateway. O overhead é inaceitável para um proxy:
 
 | Decisão              | Escolha                           | Razão                                      |
 |----------------------|-----------------------------------|--------------------------------------------|
-| Linguagem            | Go 1.22+                         | Performance + simplicidade + ecossistema    |
+| Linguagem            | Go 1.25+                         | Performance + simplicidade + ecossistema    |
 | Arquitetura          | Clean Architecture + SOLID        | Testabilidade + extensibilidade             |
 | HTTP Router          | `net/http` + `chi`               | Leve, idiomático, middleware composable     |
 | SQLite               | `modernc.org/sqlite`             | Pure Go, sem CGO, cross-compile trivial     |

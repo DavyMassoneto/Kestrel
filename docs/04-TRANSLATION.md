@@ -1,4 +1,4 @@
-# OmniRouter Go — Tradução OpenAI ↔ Claude
+# Kestrel — Tradução OpenAI ↔ Claude
 
 ## Por que traduzir
 

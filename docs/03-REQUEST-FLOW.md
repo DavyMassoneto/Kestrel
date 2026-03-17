@@ -1,9 +1,9 @@
-# OmniRouter Go — Fluxo de Request
+# Kestrel — Fluxo de Request
 
 ## Visão Geral
 
 ```
-Claude Code                OmniRouter (Go)                    Anthropic API
+Claude Code                Kestrel (Go)                    Anthropic API
 ─────────                  ───────────────                    ─────────────
     │                            │                                 │
     │  POST /v1/chat/completions │                                 │
@@ -346,7 +346,7 @@ faz a conversão HTTP → classificação (ver `05-ACCOUNT-ROTATION.md`):
 ## SSE Streaming Flow
 
 ```
-Claude API                  OmniRouter                    Claude Code
+Claude API                  Kestrel                    Claude Code
 ──────────                  ──────────                    ───────────
     │                            │                             │
     │ event: message_start       │                             │

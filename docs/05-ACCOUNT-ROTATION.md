@@ -1,4 +1,4 @@
-# OmniRouter Go — Rotação de Contas
+# Kestrel — Rotação de Contas
 
 ## Princípio
 

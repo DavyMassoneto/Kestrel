@@ -1,4 +1,4 @@
-# OmniRouter Go — Fases de Implementação
+# Kestrel — Fases de Implementação
 
 ## Metodologia: TDD (Red-Green-Refactor)
 
@@ -12,14 +12,14 @@ Nenhum merge sem `go test ./... -coverprofile` passando.
 
 ---
 
-## Fase 1 — Skeleton (infra + server + middlewares)
+## Fase 1 — Skeleton (infra + server + middlewares) [DONE]
 
 **Objetivo:** HTTP server funcional com health check e middlewares. Sem chat handler — o chat entra na Fase 2 junto com o domínio.
 
 ```
 Arquivos de produção:
-  cmd/omnirouter/main.go
-  internal/infra/config/config.go
+  cmd/kestrel/main.go
+  internal/infra/cfg/config.go
   internal/infra/logger/slog.go
   internal/adapter/handler/health.go
   internal/adapter/middleware/requestid.go
@@ -28,7 +28,7 @@ Arquivos de produção:
   Makefile
 
 Arquivos de teste:
-  internal/infra/config/config_test.go
+  internal/infra/cfg/config_test.go
   internal/adapter/handler/health_test.go
   internal/adapter/middleware/requestid_test.go
   internal/adapter/middleware/recovery_test.go
@@ -42,7 +42,7 @@ Arquivos de teste:
 
 ---
 
-## Fase 2 — Domínio + Tradução
+## Fase 2 — Domínio + Tradução [DONE]
 
 **Objetivo:** Claude Code se conecta e funciona transparentemente. Domínio modelado com entidades, VOs e erros.
 
@@ -97,7 +97,7 @@ Arquivos de teste:
 
 ---
 
-## Fase 3 — SQLite + Persistência
+## Fase 3 — SQLite + Persistência [DONE]
 
 **Objetivo:** Contas e keys persistidas. CRUD admin funcional.
 
@@ -111,15 +111,20 @@ Arquivos de produção:
   internal/adapter/handler/admin.go
   internal/usecase/admin_account.go
   internal/usecase/admin_apikey.go
+  internal/usecase/ports.go
+  migrations/embed.go
   migrations/001_accounts.sql
   migrations/002_apikeys.sql
 
 Arquivos de teste:
+  internal/adapter/sqlite/db_test.go (implícito via integration tests)
   internal/adapter/sqlite/account_repo_test.go
   internal/adapter/sqlite/apikey_repo_test.go
+  internal/adapter/sqlite/migrations_test.go
   internal/adapter/crypto/aes_test.go
   internal/usecase/admin_account_test.go
   internal/usecase/admin_apikey_test.go
+  internal/adapter/handler/admin_test.go
 ```
 
 **Entregável:** Admin API funcional, contas salvas no SQLite, testes de integração passam.
@@ -208,7 +213,7 @@ Arquivos de produção:
   web/                    (React SPA)
   Dockerfile
   docker-compose.yml
-  cmd/omnirouter/embed.go (embed.FS setup)
+  cmd/kestrel/embed.go (embed.FS setup)
   .env.example
 
 Arquivos de teste:
@@ -217,7 +222,7 @@ Arquivos de teste:
 
 **Entregável:** Binário único com frontend embedado funciona em produção.
 
-**Critério de aceite:** `docker run omnirouter` funcional, frontend acessível, testes frontend verdes.
+**Critério de aceite:** `docker run kestrel` funcional, frontend acessível, testes frontend verdes.
 
 ---
 

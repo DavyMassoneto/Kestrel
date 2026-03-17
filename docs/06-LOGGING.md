@@ -1,4 +1,4 @@
-# OmniRouter Go — Logging e Observabilidade
+# Kestrel — Logging e Observabilidade
 
 ## Stack
 
@@ -241,11 +241,18 @@ Sequência de cleanup:
 # Nível de log (debug, info, warn, error)
 LOG_LEVEL=info
 
-# Formato (json, text)
+# Formato (json, pretty)
 LOG_FORMAT=json
+```
 
+> **Nota:** `LOG_FORMAT=pretty` usa `slog.TextHandler` para saída legível em desenvolvimento.
+> `LOG_FORMAT=json` (default) usa `slog.JSONHandler` para produção.
+
+### Variáveis planejadas (não implementadas)
+
+```env
 # Arquivo de log (vazio = só stdout)
-LOG_FILE=/var/log/omnirouter/app.log
+LOG_FILE=/var/log/kestrel/app.log
 
 # Log de request detalhado (inclui bodies — CUIDADO com PII)
 LOG_REQUEST_BODY=false
@@ -262,31 +269,19 @@ SESSION_TTL=30m
 ```go
 // internal/infra/logger/slog.go
 
-func New(cfg config.LogConfig) *slog.Logger {
+func New(level string, format string) *slog.Logger {
+    lvl := parseLevel(level)
+    opts := &slog.HandlerOptions{Level: lvl}
+
     var handler slog.Handler
-
-    opts := &slog.HandlerOptions{
-        Level: parseLevel(cfg.Level),
-    }
-
-    if cfg.Format == "json" {
-        handler = slog.NewJSONHandler(os.Stdout, opts)
-    } else {
+    if strings.ToLower(format) == "pretty" {
         handler = slog.NewTextHandler(os.Stdout, opts)
+    } else {
+        handler = slog.NewJSONHandler(os.Stdout, opts)
     }
 
-    // Multi-writer se arquivo configurado
-    if cfg.File != "" {
-        fileWriter := openLogFile(cfg.File)
-        multiWriter := io.MultiWriter(os.Stdout, fileWriter)
-
-        if cfg.Format == "json" {
-            handler = slog.NewJSONHandler(multiWriter, opts)
-        } else {
-            handler = slog.NewTextHandler(multiWriter, opts)
-        }
-    }
-
-    return slog.New(handler)
+    log := slog.New(handler)
+    slog.SetDefault(log)
+    return log
 }
 ```

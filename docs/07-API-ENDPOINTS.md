@@ -1,4 +1,4 @@
-# OmniRouter Go — API Endpoints
+# Kestrel — API Endpoints
 
 ## Proxy (compatível com OpenAI)
 
@@ -104,14 +104,8 @@ Exemplos por cenário:
 ```json
 {
   "status": "ok",
-  "version": "0.1.0",
-  "uptime_seconds": 3600,
-  "accounts": {
-    "total": 5,
-    "active": 3,
-    "cooldown": 1,
-    "disabled": 1
-  }
+  "version": "dev",
+  "uptime_seconds": 3600.5
 }
 ```
 

@@ -1,10 +1,10 @@
-# OmniRouter Go — Arquitetura
+# Kestrel — Arquitetura
 
 ## Clean Architecture — Camadas
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                    cmd/omnirouter/                        │
+│                    cmd/kestrel/                        │
 │              (composição raiz, wiring DI)                 │
 └──────────────┬───────────────────────────┬───────────────┘
                │                           │
@@ -47,16 +47,19 @@ NÃO existe pacote `domain/port/` centralizado. Cada use case define apenas as i
 que precisa — Interface Segregation Principle aplicado ao Go:
 
 ```
+Implementados:
 usecase/ports.go            → define interfaces compartilhadas: AccountSelector, FallbackHandler, FallbackResult, Clock, ClassifiedError, RetryAttempt, ProxyChatResult, ProxyStreamResult
-usecase/select_account.go   → define AccountFinder      (1 método: FindAvailable)
-usecase/handle_fallback.go  → define AccountStatusWriter (2 métodos: UpdateStatus, RecordSuccess)
 usecase/proxy_chat.go       → define ChatSender (1 método: SendChat)
 usecase/proxy_stream.go     → define ChatStreamer (1 método: StreamChat)
+usecase/admin_account.go    → define AccountStore (CRUD completo: FindByID, FindAll, Create, Save, Delete)
+usecase/admin_apikey.go     → define APIKeyStore  (CRUD completo: FindByID, FindAll, Create, Delete)
+
+Planejados:
+usecase/select_account.go   → define AccountFinder      (1 método: FindAvailable)
+usecase/handle_fallback.go  → define AccountStatusWriter (2 métodos: UpdateStatus, RecordSuccess)
 usecase/authenticate.go     → define APIKeyFinder        (1 método: FindByPrefix)
 usecase/manage_session.go   → define SessionReader, SessionWriter
 adapter/middleware/logging.go → define RequestLogger (1 método: LogRequest) + RequestLogEntry — concern de infra, não de negócio
-usecase/admin_account.go     → define AccountStore (CRUD completo)
-usecase/admin_apikey.go     → define APIKeyStore  (CRUD completo)
 ```
 
 Isso garante que cada componente depende apenas do que consome, não de um contrato monolítico.
@@ -64,9 +67,9 @@ Isso garante que cada componente depende apenas do que consome, não de um contr
 ## Estrutura de Diretórios
 
 ```
-omnirouter/
+kestrel/
 ├── cmd/
-│   └── omnirouter/
+│   └── kestrel/
 │       └── main.go                     # Composição raiz
 │
 ├── internal/
@@ -89,14 +92,14 @@ omnirouter/
 │   │
 │   ├── usecase/
 │   │   ├── ports.go                   # Interfaces compartilhadas: AccountSelector, FallbackHandler, FallbackResult, Clock, ClassifiedError, RetryAttempt, ProxyChatResult, ProxyStreamResult
-│   │   ├── proxy_chat.go              # ProxyChatUseCase (sync) + ChatSender interface
-│   │   ├── proxy_stream.go            # ProxyStreamUseCase (streaming) + ChatStreamer interface
-│   │   ├── authenticate.go            # AuthenticateUseCase + APIKeyFinder interface
-│   │   ├── select_account.go          # SelectAccountUseCase + AccountFinder interface
-│   │   ├── handle_fallback.go         # HandleFallbackUseCase + AccountStatusWriter interface
-│   │   ├── manage_session.go          # ManageSessionUseCase + SessionReader/SessionWriter interfaces
-│   │   ├── admin_account.go           # CreateAccountUseCase, UpdateAccountUseCase, DeleteAccountUseCase, ResetAccountUseCase
-│   │   └── admin_apikey.go            # CreateAPIKeyUseCase, RevokeAPIKeyUseCase
+│   │   ├── proxy_chat.go              # ProxyChatUseCase (sync) + ChatSender interface (Phase 2: single account)
+│   │   ├── proxy_stream.go            # ProxyStreamUseCase (streaming) + ChatStreamer interface (Phase 2: single account)
+│   │   ├── admin_account.go           # AdminAccountUseCase (Create, Update, List, Delete, Reset) + AccountStore interface
+│   │   ├── admin_apikey.go            # AdminAPIKeyUseCase (Create, List, Revoke) + APIKeyStore interface
+│   │   ├── authenticate.go            # (planned — Phase 4)
+│   │   ├── select_account.go          # (planned — Phase 5)
+│   │   ├── handle_fallback.go         # (planned — Phase 5)
+│   │   └── manage_session.go          # (planned — Phase 5)
 │   │
 │   ├── adapter/
 │   │   ├── handler/
@@ -107,10 +110,10 @@ omnirouter/
 │   │   │   └── admin.go               # CRUD contas + keys (chama use cases administrativos)
 │   │   │
 │   │   ├── middleware/
-│   │   │   ├── auth.go                # Valida API key, injeta entidade no context
 │   │   │   ├── requestid.go           # Injeta X-Request-ID
-│   │   │   ├── logging.go             # Log de request/response + RequestLogger interface + request log persistence
-│   │   │   └── recovery.go            # Panic recovery
+│   │   │   ├── recovery.go            # Panic recovery
+│   │   │   ├── auth.go                # (planned — Phase 4)
+│   │   │   └── logging.go             # (planned — Phase 4)
 │   │   │
 │   │   ├── claude/
 │   │   │   ├── client.go              # Implementa ChatSender, ChatStreamer (traduz domínio → Claude internamente)
@@ -124,18 +127,18 @@ omnirouter/
 │   │   ├── crypto/
 │   │   │   └── aes.go                # AES-256-GCM encrypt/decrypt para API keys at rest
 │   │   │
-│   │   ├── session/
+│   │   ├── session/                   # (planned — Phase 5)
 │   │   │   └── memory.go             # Implementa SessionReader, SessionWriter (in-memory com RWMutex)
 │   │   │
 │   │   └── sqlite/
-│   │       ├── account_repo.go        # Implementa AccountFinder, AccountStatusWriter, AccountStore
-│   │       ├── apikey_repo.go         # Implementa APIKeyFinder, APIKeyStore
-│   │       ├── request_log_repo.go   # Implementa RequestLogger
+│   │       ├── db.go                  # Conexão: 1 writer + N readers, WAL, busy_timeout
 │   │       ├── migrations.go          # Auto-migration no startup
-│   │       └── db.go                  # Conexão: 1 writer + N readers, WAL, busy_timeout
+│   │       ├── account_repo.go        # Implementa AccountStore (FindByID, FindAll, Create, Save, Delete)
+│   │       ├── apikey_repo.go         # Implementa APIKeyStore (FindByID, FindAll, Create, Delete)
+│   │       └── request_log_repo.go   # (planned — Phase 6)
 │   │
 │   └── infra/
-│       ├── config/
+│       ├── cfg/
 │       │   └── config.go              # Env vars → struct
 │       └── logger/
 │           └── slog.go                # Setup do slog (JSON + pretty)
@@ -143,15 +146,14 @@ omnirouter/
 ├── web/                               # Frontend SPA (React + Vite, embed no binário)
 │
 ├── migrations/
+│   ├── embed.go                       # embed.FS para migrations SQL
 │   ├── 001_accounts.sql
 │   ├── 002_apikeys.sql
-│   └── 003_request_log.sql
+│   └── 003_request_log.sql            # (planned — Phase 6)
 │
 ├── go.mod
 ├── go.sum
-├── Dockerfile
-├── Makefile
-└── .env.example
+└── Makefile
 ```
 
 > **Nota:** `adapter/handler/` e `adapter/middleware/` são Interface Adapters (Clean Arch).
@@ -619,7 +621,7 @@ O `ProviderError` (tipo interno do `adapter/claude/errors.go`) implementa a inte
 
 Os sub-use-cases (SelectAccountUseCase, HandleFallbackUseCase) implementam as interfaces
 `AccountSelector` e `FallbackHandler` definidas acima. A composição concreta acontece
-no `cmd/omnirouter/main.go` (composition root).
+no `cmd/kestrel/main.go` (composition root).
 
 ### No use case — authenticate.go
 
