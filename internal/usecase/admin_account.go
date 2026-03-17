@@ -118,6 +118,11 @@ func (uc *AdminAccountUseCase) Update(ctx context.Context, id vo.AccountID, inpu
 	return updated, nil
 }
 
+// List returns all accounts.
+func (uc *AdminAccountUseCase) List(ctx context.Context) ([]*entity.Account, error) {
+	return uc.store.FindAll(ctx)
+}
+
 // Delete removes an account by ID.
 func (uc *AdminAccountUseCase) Delete(ctx context.Context, id vo.AccountID) error {
 	return uc.store.Delete(ctx, id)

@@ -77,6 +77,11 @@ func (uc *AdminAPIKeyUseCase) Create(ctx context.Context, input CreateAPIKeyInpu
 	return key, rawKey, nil
 }
 
+// List returns all API keys.
+func (uc *AdminAPIKeyUseCase) List(ctx context.Context) ([]*entity.APIKey, error) {
+	return uc.store.FindAll(ctx)
+}
+
 // Revoke deletes an API key by ID.
 func (uc *AdminAPIKeyUseCase) Revoke(ctx context.Context, id vo.APIKeyID) error {
 	return uc.store.Delete(ctx, id)
