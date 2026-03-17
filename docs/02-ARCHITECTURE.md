@@ -71,7 +71,8 @@ Isso garante que cada componente depende apenas do que consome, não de um contr
 kestrel/
 ├── cmd/
 │   └── kestrel/
-│       └── main.go                     # Composição raiz
+│       ├── main.go                     # Composição raiz
+│       └── embed.go                    # embed.FS para frontend SPA (web/dist)
 │
 ├── internal/
 │   ├── domain/
@@ -144,7 +145,16 @@ kestrel/
 │       └── logger/
 │           └── slog.go                # Setup do slog (JSON + pretty)
 │
-├── web/                               # Frontend SPA (React + Vite, embed no binário)
+├── web/                               # Frontend SPA (React 19 + Vite + Tailwind + shadcn/ui)
+│   ├── src/
+│   │   ├── api/                       # API client com auth (X-Admin-Key)
+│   │   ├── components/                # Layout, Sidebar, ErrorBoundary, UI components
+│   │   ├── routes/                    # Dashboard, Accounts, ApiKeys, Logs pages
+│   │   ├── hooks/                     # Custom React hooks
+│   │   ├── types/                     # TypeScript types
+│   │   ├── App.tsx                    # Router + QueryClient + auth setup
+│   │   └── main.tsx                   # Entry point
+│   └── dist/                          # Build output (embedded no binário Go)
 │
 ├── migrations/
 │   ├── embed.go                       # embed.FS para migrations SQL
@@ -152,6 +162,7 @@ kestrel/
 │   ├── 002_apikeys.sql
 │   └── 003_request_log.sql            # Tabela request_log + índices
 │
+├── Dockerfile                         # Multi-stage build (node → go → alpine)
 ├── go.mod
 ├── go.sum
 └── Makefile

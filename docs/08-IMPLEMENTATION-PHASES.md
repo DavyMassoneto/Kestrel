@@ -204,7 +204,7 @@ Arquivos de teste:
 
 ---
 
-## Fase 7 — Frontend + Deploy
+## Fase 7 — Frontend + Deploy [DONE]
 
 **Objetivo:** Interface web e deploy em produção.
 

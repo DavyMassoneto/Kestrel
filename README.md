@@ -22,8 +22,10 @@ Claude Code ──> Kestrel (Go proxy) ──> Anthropic API
 - **Exponential backoff** — per-account cooldown with automatic recovery
 - **SQLite persistence** — accounts and API keys with auto-migration
 - **Admin API** — CRUD for accounts and keys
+- **Admin dashboard** — React SPA at `/app/` with accounts, keys, logs, and stats
 - **Structured logging** — slog with JSON or pretty text output
 - **Encryption at rest** — AES-256-GCM for stored API keys
+- **Single binary** — frontend embedded via `embed.FS`, no separate web server needed
 
 ## Stack
 
@@ -35,6 +37,7 @@ Claude Code ──> Kestrel (Go proxy) ──> Anthropic API
 | Database    | SQLite (modernc.org/sqlite)|
 | Logging     | slog (stdlib)              |
 | Config      | caarlos0/env               |
+| Frontend    | React 19 + Vite + Tailwind |
 
 ## Quick Start
 
@@ -83,8 +86,9 @@ make build
 | POST   | `/admin/keys`                | Create API key             |
 | DELETE | `/admin/keys/{id}`           | Revoke API key             |
 | GET    | `/admin/logs`                | Query request logs (paginated, filterable) |
+| GET    | `/app/*`                     | Admin dashboard SPA (React)  |
 
-Admin endpoints require `X-Admin-Key` header.
+Admin endpoints require `X-Admin-Key` header. The dashboard at `/app/` authenticates via the same admin key.
 
 ## Implementation Status
 
@@ -94,7 +98,7 @@ Admin endpoints require `X-Admin-Key` header.
 - **Phase 4** — Authentication + Logging Middleware: Done
 - **Phase 5** — Multi-account + Fallback: Done
 - **Phase 6** — Request Log persistence: Done
-- **Phase 7** — Frontend + Deploy: Pending
+- **Phase 7** — Frontend + Deploy: Done
 - **Phase 8** — Integration + E2E Tests: Pending
 
 ## Documentation
