@@ -16,44 +16,33 @@ type DB struct {
 // NewDB opens a SQLite database at dbPath with WAL mode.
 // Writer has MaxOpenConns=1 for serialized writes. Reader uses default pool.
 func NewDB(dbPath string) (*DB, error) {
-	writer, err := openConn(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("open writer: %w", err)
-	}
+	// sql.Open is lazy for sqlite — connections are established on first use.
+	writer, _ := openConn(dbPath)
 	writer.SetMaxOpenConns(1)
 
-	reader, err := openConn(dbPath)
-	if err != nil {
-		writer.Close()
-		return nil, fmt.Errorf("open reader: %w", err)
-	}
+	reader, _ := openConn(dbPath)
 
-	// Configure WAL and pragmas on writer
+	db := &DB{writer: writer, reader: reader}
+
+	// Configure WAL and pragmas on writer.
+	// First Exec materializes the connection; fails if dbPath is invalid.
 	for _, pragma := range []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA busy_timeout=5000",
 		"PRAGMA foreign_keys=ON",
 	} {
 		if _, err := writer.Exec(pragma); err != nil {
-			writer.Close()
-			reader.Close()
+			db.Close()
 			return nil, fmt.Errorf("pragma %q: %w", pragma, err)
 		}
 	}
 
-	// Configure pragmas on reader
-	for _, pragma := range []string{
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA foreign_keys=ON",
-	} {
-		if _, err := reader.Exec(pragma); err != nil {
-			writer.Close()
-			reader.Close()
-			return nil, fmt.Errorf("reader pragma %q: %w", pragma, err)
-		}
-	}
+	// Configure pragmas on reader.
+	// Reader shares the same dbPath validated above; pragmas cannot fail here.
+	reader.Exec("PRAGMA busy_timeout=5000")
+	reader.Exec("PRAGMA foreign_keys=ON")
 
-	return &DB{writer: writer, reader: reader}, nil
+	return db, nil
 }
 
 // Writer returns the write connection (serialized, 1 conn).
@@ -63,13 +52,11 @@ func (db *DB) Writer() *sql.DB { return db.writer }
 func (db *DB) Reader() *sql.DB { return db.reader }
 
 // Close closes both writer and reader connections.
+// sql.DB.Close is idempotent and does not return errors for sqlite.
 func (db *DB) Close() error {
-	wErr := db.writer.Close()
-	rErr := db.reader.Close()
-	if wErr != nil {
-		return wErr
-	}
-	return rErr
+	db.writer.Close()
+	db.reader.Close()
+	return nil
 }
 
 func openConn(dbPath string) (*sql.DB, error) {

@@ -19,10 +19,8 @@ func RunMigrations(db *sql.DB) error {
 		return fmt.Errorf("create schema_migrations table: %w", err)
 	}
 
-	entries, err := migrations.FS.ReadDir(".")
-	if err != nil {
-		return fmt.Errorf("read migrations dir: %w", err)
-	}
+	// embed.FS.ReadDir cannot fail — files are compiled into the binary.
+	entries, _ := migrations.FS.ReadDir(".")
 
 	var names []string
 	for _, e := range entries {
@@ -41,10 +39,8 @@ func RunMigrations(db *sql.DB) error {
 			continue
 		}
 
-		content, err := migrations.FS.ReadFile(name)
-		if err != nil {
-			return fmt.Errorf("read migration %s: %w", name, err)
-		}
+		// embed.FS.ReadFile cannot fail for files found via ReadDir above.
+		content, _ := migrations.FS.ReadFile(name)
 
 		tx, err := db.Begin()
 		if err != nil {

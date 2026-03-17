@@ -132,3 +132,54 @@ func TestNewDB_ReaderCanRead(t *testing.T) {
 		t.Errorf("id = %d; want 42", id)
 	}
 }
+
+func TestNewDB_ReaderForeignKeysEnabled(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	defer db.Close()
+
+	// Verify reader also has foreign_keys enabled
+	var fk int
+	err = db.Reader().QueryRow("PRAGMA foreign_keys").Scan(&fk)
+	if err != nil {
+		t.Fatalf("query foreign_keys on reader: %v", err)
+	}
+	if fk != 1 {
+		t.Errorf("reader foreign_keys = %d; want 1", fk)
+	}
+}
+
+func TestNewDB_ReaderBusyTimeout(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	defer db.Close()
+
+	// Verify reader has busy_timeout configured
+	var timeout int
+	err = db.Reader().QueryRow("PRAGMA busy_timeout").Scan(&timeout)
+	if err != nil {
+		t.Fatalf("query busy_timeout on reader: %v", err)
+	}
+	if timeout != 5000 {
+		t.Errorf("reader busy_timeout = %d; want 5000", timeout)
+	}
+}
+
+func TestNewDB_InvalidPath(t *testing.T) {
+	// Path in a non-existent directory — pragma exec will fail
+	_, err := sqlite.NewDB("/nonexistent/dir/that/does/not/exist/test.db")
+	if err == nil {
+		t.Fatal("expected error for invalid path")
+	}
+}
+

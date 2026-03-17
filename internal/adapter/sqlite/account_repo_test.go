@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,6 +26,28 @@ func (s *stubEncryptor) Decrypt(ciphertext string) (string, error) {
 	if len(ciphertext) > 4 && ciphertext[:4] == "enc:" {
 		return ciphertext[4:], nil
 	}
+	return ciphertext, nil
+}
+
+// failDecryptEncryptor succeeds on Encrypt but always fails on Decrypt.
+type failDecryptEncryptor struct{}
+
+func (f *failDecryptEncryptor) Encrypt(plaintext string) (string, error) {
+	return "enc:" + plaintext, nil
+}
+
+func (f *failDecryptEncryptor) Decrypt(string) (string, error) {
+	return "", fmt.Errorf("forced decrypt failure")
+}
+
+// failEncryptEncryptor always fails on Encrypt.
+type failEncryptEncryptor struct{}
+
+func (f *failEncryptEncryptor) Encrypt(string) (string, error) {
+	return "", fmt.Errorf("forced encrypt failure")
+}
+
+func (f *failEncryptEncryptor) Decrypt(ciphertext string) (string, error) {
 	return ciphertext, nil
 }
 
@@ -385,5 +408,419 @@ func TestAccountRepo_RecordSuccess(t *testing.T) {
 	}
 	if found.LastUsedAt() == nil {
 		t.Error("LastUsedAt should not be nil")
+	}
+}
+
+// --- Corrupted data tests ---
+
+func TestAccountRepo_FindByID_DecryptError(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	// Insert via raw SQL
+	_, err = db.Writer().Exec(
+		`INSERT INTO accounts (id, name, api_key, base_url, status, priority, backoff_level, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"acc_aaaaaaaaaaaaaaaaaaaaa", "test", "some-encrypted-key", "https://api.anthropic.com",
+		"active", 0, 0, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	// Use failDecryptEncryptor
+	repo := sqlite.NewAccountRepo(db, &failDecryptEncryptor{})
+	ctx := context.Background()
+
+	id, _ := vo.ParseAccountID("acc_aaaaaaaaaaaaaaaaaaaaa")
+	_, err = repo.FindByID(ctx, id)
+	if err == nil {
+		t.Fatal("expected decrypt error")
+	}
+}
+
+func TestAccountRepo_FindByID_InvalidID(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	// Insert row with invalid ID directly via SQL
+	_, err = db.Writer().Exec(
+		`INSERT INTO accounts (id, name, api_key, base_url, status, priority, backoff_level, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"bad-id", "test", "enc:sk-key", "https://api.anthropic.com",
+		"active", 0, 0, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	repo := sqlite.NewAccountRepo(db, &stubEncryptor{})
+	ctx := context.Background()
+
+	// Query by raw SQL to get the row with bad ID
+	rows, err := db.Reader().QueryContext(ctx,
+		`SELECT id, name, api_key, base_url, status, priority, cooldown_until, backoff_level, last_used_at, last_error, error_classification
+		 FROM accounts WHERE id = 'bad-id'`)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+
+	// Use FindAll which will attempt to rehydrate the bad ID
+	_, err = repo.FindAll(ctx)
+	if err == nil {
+		t.Fatal("expected parse account id error")
+	}
+}
+
+func TestAccountRepo_FindAll_InvalidCooldownUntil(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	// Insert with valid ID but invalid cooldown_until format (must also have error_classification for the branch)
+	_, err = db.Writer().Exec(
+		`INSERT INTO accounts (id, name, api_key, base_url, status, priority, cooldown_until, backoff_level, last_used_at, last_error, error_classification, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"acc_bbbbbbbbbbbbbbbbbbbbb", "test", "enc:sk-key", "https://api.anthropic.com",
+		"cooldown", 0, "not-a-date", 1, nil, "rate_limit", "rate_limit",
+		"2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	repo := sqlite.NewAccountRepo(db, &stubEncryptor{})
+	ctx := context.Background()
+
+	_, err = repo.FindAll(ctx)
+	if err == nil {
+		t.Fatal("expected parse cooldown_until error")
+	}
+}
+
+func TestAccountRepo_FindAll_InvalidLastUsedAt(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	// Insert with valid ID but invalid last_used_at format
+	_, err = db.Writer().Exec(
+		`INSERT INTO accounts (id, name, api_key, base_url, status, priority, backoff_level, last_used_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"acc_ccccccccccccccccccccc", "test", "enc:sk-key", "https://api.anthropic.com",
+		"active", 0, 0, "not-a-date",
+		"2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	repo := sqlite.NewAccountRepo(db, &stubEncryptor{})
+	ctx := context.Background()
+
+	_, err = repo.FindAll(ctx)
+	if err == nil {
+		t.Fatal("expected parse last_used_at error")
+	}
+}
+
+func TestAccountRepo_Create_EncryptError(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	repo := sqlite.NewAccountRepo(db, &failEncryptEncryptor{})
+	ctx := context.Background()
+
+	acc := makeAccount(t)
+	err = repo.Create(ctx, acc)
+	if err == nil {
+		t.Fatal("expected encrypt error on Create")
+	}
+}
+
+func TestAccountRepo_Save_EncryptError(t *testing.T) {
+	// First create with normal encryptor, then save with failing one
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	// Create with normal encryptor
+	goodRepo := sqlite.NewAccountRepo(db, &stubEncryptor{})
+	ctx := context.Background()
+	acc := makeAccount(t)
+	goodRepo.Create(ctx, acc)
+
+	// Save with failing encryptor
+	badRepo := sqlite.NewAccountRepo(db, &failEncryptEncryptor{})
+	err = badRepo.Save(ctx, acc)
+	if err == nil {
+		t.Fatal("expected encrypt error on Save")
+	}
+}
+
+func TestAccountRepo_FindAll_DecryptError(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	// Insert valid row
+	_, err = db.Writer().Exec(
+		`INSERT INTO accounts (id, name, api_key, base_url, status, priority, backoff_level, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"acc_ddddddddddddddddddddd", "test", "enc:sk-key", "https://api.anthropic.com",
+		"active", 0, 0, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	// Use failDecryptEncryptor — exercises scanAccounts → rehydrate → decrypt error
+	repo := sqlite.NewAccountRepo(db, &failDecryptEncryptor{})
+	ctx := context.Background()
+
+	_, err = repo.FindAll(ctx)
+	if err == nil {
+		t.Fatal("expected decrypt error on FindAll")
+	}
+}
+
+func TestAccountRepo_Delete_ClosedDB(t *testing.T) {
+	repo, writer := setupRepo(t)
+	ctx := context.Background()
+
+	acc := makeAccount(t)
+	repo.Create(ctx, acc)
+
+	writer.Close()
+
+	err := repo.Delete(ctx, acc.ID())
+	if err == nil {
+		t.Fatal("expected error for closed DB on Delete")
+	}
+}
+
+func TestAccountRepo_RecordSuccess_ClosedDB(t *testing.T) {
+	repo, writer := setupRepo(t)
+	ctx := context.Background()
+
+	acc := makeAccount(t)
+	repo.Create(ctx, acc)
+
+	writer.Close()
+
+	err := repo.RecordSuccess(ctx, acc.ID(), time.Now())
+	if err == nil {
+		t.Fatal("expected error for closed DB on RecordSuccess")
+	}
+}
+
+func TestAccountRepo_FindAll_ClosedDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	repo := sqlite.NewAccountRepo(db, &stubEncryptor{})
+	db.Close()
+
+	_, err = repo.FindAll(context.Background())
+	if err == nil {
+		t.Fatal("expected error for closed DB on FindAll")
+	}
+}
+
+func TestAccountRepo_FindAvailable_ClosedDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	repo := sqlite.NewAccountRepo(db, &stubEncryptor{})
+	db.Close()
+
+	_, err = repo.FindAvailable(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected error for closed DB on FindAvailable")
+	}
+}
+
+func TestAccountRepo_UpdateStatus_ClosedDB(t *testing.T) {
+	repo, writer := setupRepo(t)
+	ctx := context.Background()
+
+	acc := makeAccount(t)
+	repo.Create(ctx, acc)
+	acc.ApplyCooldown(vo.ErrRateLimit, time.Now())
+
+	writer.Close()
+
+	err := repo.UpdateStatus(ctx, acc)
+	if err == nil {
+		t.Fatal("expected error for closed DB on UpdateStatus")
+	}
+}
+
+func TestAccountRepo_Create_ClosedDB(t *testing.T) {
+	repo, writer := setupRepo(t)
+	ctx := context.Background()
+
+	writer.Close()
+
+	acc := makeAccount(t)
+	err := repo.Create(ctx, acc)
+	if err == nil {
+		t.Fatal("expected error for closed DB on Create")
+	}
+}
+
+func TestAccountRepo_Save_ClosedDB(t *testing.T) {
+	repo, writer := setupRepo(t)
+	ctx := context.Background()
+
+	acc := makeAccount(t)
+	repo.Create(ctx, acc)
+
+	writer.Close()
+
+	err := repo.Save(ctx, acc)
+	if err == nil {
+		t.Fatal("expected error for closed DB on Save")
+	}
+}
+
+func TestAccountRepo_FindByID_ScanError(t *testing.T) {
+	// Drop the accounts table and recreate with fewer columns
+	// to trigger a scan error (not ErrNoRows).
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// Create a minimal table that has the same name but different columns
+	_, err = db.Writer().Exec(`CREATE TABLE accounts (id TEXT PRIMARY KEY, name TEXT)`)
+	if err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	_, err = db.Writer().Exec(`INSERT INTO accounts (id, name) VALUES ('acc_eeeeeeeeeeeeeeeeeeeee', 'test')`)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	repo := sqlite.NewAccountRepo(db, &stubEncryptor{})
+	id, _ := vo.ParseAccountID("acc_eeeeeeeeeeeeeeeeeeeee")
+	_, err = repo.FindByID(context.Background(), id)
+	if err == nil {
+		t.Fatal("expected scan error for mismatched schema")
+	}
+}
+
+func TestAccountRepo_FindAll_ScanError(t *testing.T) {
+	// Same as above but for scanAccounts path (via FindAll)
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := sqlite.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// Create accounts table with fewer columns to provoke rows.Scan error
+	_, err = db.Writer().Exec(`CREATE TABLE accounts (id TEXT PRIMARY KEY, name TEXT)`)
+	if err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	_, err = db.Writer().Exec(`INSERT INTO accounts (id, name) VALUES ('acc_fffffffffffffffffffff', 'test')`)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	repo := sqlite.NewAccountRepo(db, &stubEncryptor{})
+	_, err = repo.FindAll(context.Background())
+	if err == nil {
+		t.Fatal("expected scan error for mismatched schema")
 	}
 }

@@ -126,3 +126,44 @@ func TestRunMigrations_ClosedDB(t *testing.T) {
 		t.Error("expected error for closed database")
 	}
 }
+
+func TestRunMigrations_CorruptedMigrationsTable(t *testing.T) {
+	db := tempDB(t)
+
+	// Create schema_migrations with incompatible schema (no version column)
+	_, err := db.Exec(`CREATE TABLE schema_migrations (bad_col TEXT)`)
+	if err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	// RunMigrations should fail when querying isApplied because the
+	// SELECT COUNT(*) FROM schema_migrations WHERE version = ? will fail
+	// since version column doesn't exist.
+	err = sqlite.RunMigrations(db)
+	if err == nil {
+		t.Fatal("expected error for corrupted schema_migrations table")
+	}
+}
+
+func TestRunMigrations_InvalidMigrationSQL(t *testing.T) {
+	db := tempDB(t)
+
+	// First, run normal migrations
+	if err := sqlite.RunMigrations(db); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	// Clear the schema_migrations to re-run, but corrupt the accounts table
+	// so that re-running migration would fail at exec stage
+	_, err := db.Exec(`DELETE FROM schema_migrations`)
+	if err != nil {
+		t.Fatalf("delete migrations: %v", err)
+	}
+
+	// The 001_accounts.sql uses CREATE TABLE IF NOT EXISTS, so it won't fail.
+	// This test verifies idempotent behavior — migration SQL should still succeed.
+	err = sqlite.RunMigrations(db)
+	if err != nil {
+		t.Fatalf("re-run after clearing versions should succeed: %v", err)
+	}
+}
