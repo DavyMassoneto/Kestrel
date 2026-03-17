@@ -99,10 +99,11 @@ func NewLogging(logger RequestLogger) func(http.Handler) http.Handler {
 				slog.String("request_id", GetRequestID(r.Context())),
 			)
 
-			if logger != nil {
+			apiKeyID := GetAPIKeyID(r.Context())
+			if logger != nil && apiKeyID != "" {
 				entry := RequestLogEntry{
 					RequestID:  GetRequestID(r.Context()),
-					APIKeyID:   GetAPIKeyID(r.Context()),
+					APIKeyID:   apiKeyID,
 					APIKeyName: GetAPIKeyName(r.Context()),
 					Status:     status,
 					LatencyMs:  latency,

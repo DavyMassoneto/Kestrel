@@ -20,6 +20,12 @@ func (s *spyRequestLogger) LogRequest(_ context.Context, entry middleware.Reques
 	return nil
 }
 
+func reqWithAPIKey(req *http.Request) *http.Request {
+	ctx := middleware.WithAPIKeyID(req.Context(), vo.NewAPIKeyID())
+	ctx = middleware.WithAPIKeyName(ctx, "test-key")
+	return req.WithContext(ctx)
+}
+
 func TestLogging_Status200(t *testing.T) {
 	mw := middleware.NewLogging(nil)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +84,7 @@ func TestLogging_StatusCodeCaptured(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
+	req := reqWithAPIKey(httptest.NewRequest(http.MethodGet, "/missing", nil))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -99,7 +105,7 @@ func TestLogging_LatencyPositive(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := reqWithAPIKey(httptest.NewRequest(http.MethodGet, "/", nil))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -115,13 +121,17 @@ func TestLogging_RequestIDFromContext(t *testing.T) {
 	spy := &spyRequestLogger{}
 	mw := middleware.NewLogging(spy)
 
-	// Chain RequestID middleware before logging
+	// Chain: RequestID → Logging → handler (inject APIKeyID so LogRequest fires)
 	chain := middleware.RequestID(mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Request-ID", "req_test-request-id-12345")
+	// Inject APIKeyID so LogRequest is called
+	ctx := middleware.WithAPIKeyID(req.Context(), vo.NewAPIKeyID())
+	ctx = middleware.WithAPIKeyName(ctx, "test-key")
+	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 	chain.ServeHTTP(rec, req)
 
@@ -141,7 +151,7 @@ func TestLogging_RequestLoggerCalled(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 	}))
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req := reqWithAPIKey(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -201,26 +211,23 @@ func TestLogging_APIKeyIDFromContext(t *testing.T) {
 	}
 }
 
-func TestLogging_NoAPIKeyInContext(t *testing.T) {
+func TestLogging_NoAPIKeyInContext_SkipsLogRequest(t *testing.T) {
 	spy := &spyRequestLogger{}
 	mw := middleware.NewLogging(spy)
 
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusUnauthorized)
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if len(spy.entries) != 1 {
-		t.Fatalf("expected 1 log entry, got %d", len(spy.entries))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
-	if spy.entries[0].APIKeyID != "" {
-		t.Errorf("APIKeyID = %q, want empty", spy.entries[0].APIKeyID)
-	}
-	if spy.entries[0].APIKeyName != "" {
-		t.Errorf("APIKeyName = %q, want empty", spy.entries[0].APIKeyName)
+	if len(spy.entries) != 0 {
+		t.Fatalf("expected 0 log entries (unauthenticated), got %d", len(spy.entries))
 	}
 }
 
@@ -233,7 +240,7 @@ func TestLogging_WriteHeaderCalledOnce(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError) // second call should be ignored
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := reqWithAPIKey(httptest.NewRequest(http.MethodGet, "/", nil))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -255,7 +262,7 @@ func TestLogging_WriteImplicitHeader(t *testing.T) {
 		w.Write([]byte("data"))
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := reqWithAPIKey(httptest.NewRequest(http.MethodGet, "/", nil))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -276,7 +283,7 @@ func TestLogging_RequestLoggerError(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := reqWithAPIKey(httptest.NewRequest(http.MethodGet, "/", nil))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -293,7 +300,7 @@ func TestLogging_NoWriteAtAll(t *testing.T) {
 		// Handler does nothing — no Write, no WriteHeader
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/empty", nil)
+	req := reqWithAPIKey(httptest.NewRequest(http.MethodGet, "/empty", nil))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
