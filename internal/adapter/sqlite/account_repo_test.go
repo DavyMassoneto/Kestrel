@@ -797,8 +797,9 @@ func TestAccountRepo_FindByID_ScanError(t *testing.T) {
 	}
 }
 
-func TestAccountRepo_FindAll_ScanError(t *testing.T) {
-	// Same as above but for scanAccounts path (via FindAll)
+func TestAccountRepo_FindAll_ScanRowError(t *testing.T) {
+	// Force rows.Scan error inside scanAccounts by inserting a row
+	// where priority contains non-numeric text (scan into int fails).
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 
@@ -808,12 +809,18 @@ func TestAccountRepo_FindAll_ScanError(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	// Create accounts table with fewer columns to provoke rows.Scan error
-	_, err = db.Writer().Exec(`CREATE TABLE accounts (id TEXT PRIMARY KEY, name TEXT)`)
-	if err != nil {
-		t.Fatalf("create table: %v", err)
+	if err := sqlite.RunMigrations(db.Writer()); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
 	}
-	_, err = db.Writer().Exec(`INSERT INTO accounts (id, name) VALUES ('acc_fffffffffffffffffffff', 'test')`)
+
+	// SQLite is dynamically typed — INSERT "abc" into INTEGER column succeeds,
+	// but Go's rows.Scan into int fails.
+	_, err = db.Writer().Exec(
+		`INSERT INTO accounts (id, name, api_key, base_url, status, priority, backoff_level, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"acc_fffffffffffffffffffff", "test", "enc:sk-key", "https://api.anthropic.com",
+		"active", "not-a-number", 0, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
+	)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -821,6 +828,6 @@ func TestAccountRepo_FindAll_ScanError(t *testing.T) {
 	repo := sqlite.NewAccountRepo(db, &stubEncryptor{})
 	_, err = repo.FindAll(context.Background())
 	if err == nil {
-		t.Fatal("expected scan error for mismatched schema")
+		t.Fatal("expected scan error for incompatible priority type")
 	}
 }

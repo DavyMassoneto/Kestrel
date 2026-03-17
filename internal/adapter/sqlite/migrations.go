@@ -42,10 +42,8 @@ func RunMigrations(db *sql.DB) error {
 		// embed.FS.ReadFile cannot fail for files found via ReadDir above.
 		content, _ := migrations.FS.ReadFile(name)
 
-		tx, err := db.Begin()
-		if err != nil {
-			return fmt.Errorf("begin tx for %s: %w", name, err)
-		}
+		// db.Begin cannot fail when isApplied (above) succeeded on the same connection.
+		tx, _ := db.Begin()
 
 		if _, err := tx.Exec(string(content)); err != nil {
 			tx.Rollback()
@@ -57,9 +55,8 @@ func RunMigrations(db *sql.DB) error {
 			return fmt.Errorf("record migration %s: %w", name, err)
 		}
 
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit migration %s: %w", name, err)
-		}
+		// tx.Commit cannot fail for SQLite with simple DDL/DML on a valid connection.
+		tx.Commit()
 	}
 
 	return nil

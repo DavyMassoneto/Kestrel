@@ -167,3 +167,43 @@ func TestRunMigrations_InvalidMigrationSQL(t *testing.T) {
 		t.Fatalf("re-run after clearing versions should succeed: %v", err)
 	}
 }
+
+func TestRunMigrations_ExecMigrationFails(t *testing.T) {
+	db := tempDB(t)
+
+	// Create schema_migrations with correct schema so isApplied works
+	db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version TEXT PRIMARY KEY,
+		applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`)
+
+	// Create a VIEW called 'accounts' — CREATE TABLE IF NOT EXISTS fails
+	// when a VIEW with the same name already exists.
+	db.Exec(`CREATE VIEW accounts AS SELECT 1 AS id`)
+
+	err := sqlite.RunMigrations(db)
+	if err == nil {
+		t.Fatal("expected error when migration exec fails due to VIEW conflict")
+	}
+}
+
+func TestRunMigrations_InsertVersionFails(t *testing.T) {
+	db := tempDB(t)
+
+	// Run migrations normally first so tables exist
+	if err := sqlite.RunMigrations(db); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	// Clear versions but make schema_migrations read-only by replacing it
+	// with a VIEW that rejects INSERT
+	db.Exec(`DELETE FROM schema_migrations`)
+	db.Exec(`ALTER TABLE schema_migrations RENAME TO schema_migrations_old`)
+	db.Exec(`CREATE VIEW schema_migrations AS SELECT version, applied_at FROM schema_migrations_old`)
+
+	// isApplied query works (SELECT from VIEW), but INSERT will fail
+	err := sqlite.RunMigrations(db)
+	if err == nil {
+		t.Fatal("expected error when INSERT INTO schema_migrations fails (VIEW is read-only)")
+	}
+}
