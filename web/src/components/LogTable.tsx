@@ -1,10 +1,11 @@
-import { StatusBadge } from '@/components/StatusBadge'
+import { HttpStatusBadge } from '@/components/HttpStatusBadge'
 import type { RequestLog } from '@/types/requestLog'
 
-function httpStatusToBadge(status: number) {
-  if (status >= 200 && status < 300) return 'active' as const
-  if (status >= 400 && status < 500) return 'cooldown' as const
-  return 'disabled' as const
+function formatTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return '-'
+  return d.toLocaleString()
 }
 
 interface LogTableProps {
@@ -44,10 +45,7 @@ export function LogTable({ logs }: LogTableProps) {
               </td>
               <td className="px-4 py-2">{log.model}</td>
               <td className="px-4 py-2">
-                <StatusBadge status={httpStatusToBadge(log.status)} />
-                <span className="ml-1 text-xs text-muted-foreground">
-                  {log.status}
-                </span>
+                <HttpStatusBadge status={log.status} />
               </td>
               <td className="px-4 py-2 text-right font-mono text-xs">
                 {log.input_tokens + log.output_tokens > 0
@@ -63,7 +61,7 @@ export function LogTable({ logs }: LogTableProps) {
                 {log.stream ? 'Yes' : 'No'}
               </td>
               <td className="px-4 py-2 text-xs text-muted-foreground">
-                {new Date(log.created_at).toLocaleString()}
+                {formatTime(log.created_at)}
               </td>
             </tr>
           ))}

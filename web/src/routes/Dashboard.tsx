@@ -7,7 +7,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { StatsCard } from '@/components/StatsCard'
-import { StatusBadge } from '@/components/StatusBadge'
+import { HttpStatusBadge } from '@/components/HttpStatusBadge'
 import { useHealth } from '@/hooks/useHealth'
 import { useAccounts } from '@/hooks/useAccounts'
 import { useLogs } from '@/hooks/useLogs'
@@ -121,18 +121,7 @@ export default function Dashboard() {
                     <td className="px-4 py-2">{log.model}</td>
                     <td className="px-4 py-2">{log.account_name}</td>
                     <td className="px-4 py-2">
-                      <StatusBadge
-                        status={
-                          log.status >= 200 && log.status < 300
-                            ? 'active'
-                            : log.status === 429
-                              ? 'cooldown'
-                              : 'disabled'
-                        }
-                      />
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        {log.status}
-                      </span>
+                      <HttpStatusBadge status={log.status} />
                     </td>
                     <td className="px-4 py-2 text-right font-mono text-xs">
                       {(log.latency_ms / 1000).toFixed(1)}s
