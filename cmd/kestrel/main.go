@@ -17,13 +17,44 @@ import (
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/crypto"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/handler"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/middleware"
+	"github.com/DavyMassoneto/Kestrel/internal/adapter/session"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/sqlite"
-	"github.com/DavyMassoneto/Kestrel/internal/domain/entity"
 	"github.com/DavyMassoneto/Kestrel/internal/domain/vo"
 	"github.com/DavyMassoneto/Kestrel/internal/infra/cfg"
 	"github.com/DavyMassoneto/Kestrel/internal/infra/logger"
 	"github.com/DavyMassoneto/Kestrel/internal/usecase"
 )
+
+// realClock implements usecase.Clock with the system clock.
+type realClock struct{}
+
+func (realClock) Now() time.Time { return time.Now() }
+
+// chatAdapter adapts ProxyChatUseCase to handler.ChatExecutor.
+type chatAdapter struct {
+	uc *usecase.ProxyChatUseCase
+}
+
+func (a *chatAdapter) Execute(ctx context.Context, apiKeyID vo.APIKeyID, chatReq *vo.ChatRequest) (handler.ChatResult, error) {
+	result, err := a.uc.Execute(ctx, apiKeyID, chatReq)
+	if err != nil {
+		return handler.ChatResult{}, err
+	}
+	return handler.ChatResult{Response: result.Response}, nil
+}
+
+// streamAdapter adapts ProxyStreamUseCase to handler.StreamExecutor.
+type streamAdapter struct {
+	uc *usecase.ProxyStreamUseCase
+}
+
+func (a *streamAdapter) Execute(ctx context.Context, apiKeyID vo.APIKeyID, chatReq *vo.ChatRequest) (handler.StreamResult, error) {
+	result, err := a.uc.Execute(ctx, apiKeyID, chatReq)
+	if err != nil {
+		return handler.StreamResult{}, err
+	}
+	return handler.StreamResult{Events: result.Events}, nil
+}
 
 func main() {
 	// --- Config ---
@@ -62,6 +93,13 @@ func main() {
 	accountRepo := sqlite.NewAccountRepo(db, encryptor)
 	apiKeyRepo := sqlite.NewAPIKeyRepo(db)
 
+	// --- Session Store ---
+	sessionStore := session.NewMemorySessionStore(5*time.Minute, 30*time.Minute)
+	defer sessionStore.Stop()
+
+	// --- Clock ---
+	clock := realClock{}
+
 	// --- Use Cases (Admin) ---
 	adminAccountUC := usecase.NewAdminAccountUseCase(accountRepo)
 	adminAPIKeyUC := usecase.NewAdminAPIKeyUseCase(apiKeyRepo)
@@ -69,28 +107,40 @@ func main() {
 	// --- Use Cases (Auth) ---
 	authenticateUC := usecase.NewAuthenticateUseCase(apiKeyRepo)
 
-	// --- Use Cases (Proxy — Phase 2 single-account) ---
-	defaultAccount, err := entity.NewAccount(
-		vo.NewAccountID(),
-		"default",
-		vo.NewSensitiveString(appCfg.ClaudeAPIKey),
-		appCfg.ClaudeBaseURL,
-		0,
-	)
-	if err != nil {
-		log.Error("failed to create default account", slog.String("error", err.Error()))
-		os.Exit(1)
-	}
+	// --- Use Cases (Proxy) ---
+	selectAccountUC := usecase.NewSelectAccountUseCase(accountRepo, clock)
+	handleFallbackUC := usecase.NewHandleFallbackUseCase(accountRepo, clock)
 
 	claudeClient := claude.NewClient(http.DefaultClient)
-	proxyChatUC := usecase.NewProxyChatUseCase(claudeClient, defaultAccount)
-	proxyStreamUC := usecase.NewProxyStreamUseCase(claudeClient, defaultAccount)
+
+	proxyChatUC := usecase.NewProxyChatUseCase(
+		claudeClient,
+		selectAccountUC,
+		handleFallbackUC,
+		sessionStore,
+		sessionStore,
+		accountRepo,
+		clock,
+	)
+
+	proxyStreamUC := usecase.NewProxyStreamUseCase(
+		claudeClient,
+		selectAccountUC,
+		handleFallbackUC,
+		accountRepo,
+		sessionStore,
+		sessionStore,
+		clock,
+	)
 
 	// --- Handlers ---
 	startTime := time.Now()
 	healthHandler := handler.NewHealth(startTime)
 	adminHandler := handler.NewAdminHandler(adminAccountUC, adminAPIKeyUC, appCfg.AdminKey)
-	chatHandler := handler.NewChatHandler(proxyChatUC, proxyStreamUC)
+	chatHandler := handler.NewChatHandler(
+		&chatAdapter{uc: proxyChatUC},
+		&streamAdapter{uc: proxyStreamUC},
+	)
 	modelsHandler := handler.ModelsHandler()
 
 	// --- Router ---

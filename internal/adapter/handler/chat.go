@@ -13,14 +13,24 @@ import (
 
 const maxBodySize = 10 << 20 // 10MB
 
-// ChatExecutor executes a synchronous chat request (Phase 2 interface).
-type ChatExecutor interface {
-	Execute(ctx context.Context, chatReq *vo.ChatRequest) (*vo.ChatResponse, error)
+// ChatResult encapsulates a chat response for the handler.
+type ChatResult struct {
+	Response *vo.ChatResponse
 }
 
-// StreamExecutor executes a streaming chat request (Phase 2 interface).
+// ChatExecutor executes a synchronous chat request.
+type ChatExecutor interface {
+	Execute(ctx context.Context, apiKeyID vo.APIKeyID, chatReq *vo.ChatRequest) (ChatResult, error)
+}
+
+// StreamResult encapsulates a streaming response for the handler.
+type StreamResult struct {
+	Events <-chan vo.StreamEvent
+}
+
+// StreamExecutor executes a streaming chat request.
 type StreamExecutor interface {
-	Execute(ctx context.Context, chatReq *vo.ChatRequest) (<-chan vo.StreamEvent, error)
+	Execute(ctx context.Context, apiKeyID vo.APIKeyID, chatReq *vo.ChatRequest) (StreamResult, error)
 }
 
 // ChatHandler handles POST /v1/chat/completions.
@@ -67,32 +77,39 @@ func (h *ChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Check model access
-	if apiKey := middleware.APIKeyFromContext(r.Context()); apiKey != nil {
-		if !apiKey.IsModelAllowed(chatReq.Model.Raw) {
-			writeError(w, http.StatusForbidden, "forbidden", "model_not_allowed", "you do not have access to this model")
-			return
-		}
+	// 5. Extract API key from context
+	apiKey := middleware.APIKeyFromContext(r.Context())
+	if apiKey == nil {
+		writeError(w, http.StatusUnauthorized, "authentication_error", "invalid_api_key", "API key required")
+		return
 	}
 
-	// 6. Delegate to use case
+	// 6. Check model access
+	if !apiKey.IsModelAllowed(chatReq.Model.Raw) {
+		writeError(w, http.StatusForbidden, "forbidden", "model_not_allowed", "you do not have access to this model")
+		return
+	}
+
+	apiKeyID := apiKey.ID()
+
+	// 7. Delegate to use case
 	isStream := openaiReq.Stream != nil && *openaiReq.Stream
 	if isStream {
-		events, err := h.streamExecutor.Execute(r.Context(), chatReq)
+		result, err := h.streamExecutor.Execute(r.Context(), apiKeyID, chatReq)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "server_error", "internal_error", err.Error())
 			return
 		}
-		h.sseWriter.Write(r.Context(), w, events, func(event vo.StreamEvent) []byte {
+		h.sseWriter.Write(r.Context(), w, result.Events, func(event vo.StreamEvent) []byte {
 			return DomainEventToOpenAI(event, "chatcmpl-stream", chatReq.Model.Raw)
 		})
 	} else {
-		resp, err := h.chatExecutor.Execute(r.Context(), chatReq)
+		result, err := h.chatExecutor.Execute(r.Context(), apiKeyID, chatReq)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "server_error", "internal_error", err.Error())
 			return
 		}
-		openaiResp := DomainToOpenAI(resp)
+		openaiResp := DomainToOpenAI(result.Response)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(openaiResp)
 	}

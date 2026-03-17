@@ -17,34 +17,64 @@ import (
 
 // --- mock use cases ---
 
-type mockChatSender struct {
-	resp *vo.ChatResponse
-	err  error
-}
-
-func (m *mockChatSender) Execute(_ context.Context, _ *vo.ChatRequest) (*vo.ChatResponse, error) {
-	return m.resp, m.err
-}
-
-type mockStreamSender struct {
-	events <-chan vo.StreamEvent
+type mockChatExecutor struct {
+	result handler.ChatResult
 	err    error
 }
 
-func (m *mockStreamSender) Execute(_ context.Context, _ *vo.ChatRequest) (<-chan vo.StreamEvent, error) {
-	return m.events, m.err
+func (m *mockChatExecutor) Execute(_ context.Context, _ vo.APIKeyID, _ *vo.ChatRequest) (handler.ChatResult, error) {
+	return m.result, m.err
+}
+
+type mockStreamExecutor struct {
+	result handler.StreamResult
+	err    error
+}
+
+func (m *mockStreamExecutor) Execute(_ context.Context, _ vo.APIKeyID, _ *vo.ChatRequest) (handler.StreamResult, error) {
+	return m.result, m.err
+}
+
+// --- mock authenticator for injecting APIKey into context ---
+
+type mockAuthenticator struct {
+	key *entity.APIKey
+	err error
+}
+
+func (m *mockAuthenticator) Execute(_ context.Context, _ string) (*entity.APIKey, error) {
+	return m.key, m.err
+}
+
+// apiKeyForTest creates an APIKey with all models allowed.
+func apiKeyForTest(t *testing.T) *entity.APIKey {
+	t.Helper()
+	key, err := entity.NewAPIKey(vo.NewAPIKeyID(), "test-key", "hash", "omni-prefix0")
+	if err != nil {
+		t.Fatalf("NewAPIKey: %v", err)
+	}
+	return key
+}
+
+// serveWithAuth wraps the handler in Auth middleware and serves the request.
+func serveWithAuth(h *handler.ChatHandler, apiKey *entity.APIKey, rec *httptest.ResponseRecorder, req *http.Request) {
+	req.Header.Set("Authorization", "Bearer omni-test-token")
+	authMW := middleware.Auth(&mockAuthenticator{key: apiKey})
+	authMW(http.HandlerFunc(h.ServeHTTP)).ServeHTTP(rec, req)
 }
 
 // --- tests ---
 
 func TestChatHandler_NonStreaming_Success(t *testing.T) {
-	chat := &mockChatSender{
-		resp: &vo.ChatResponse{
-			ID:         "msg_123",
-			Content:    "Hello!",
-			Model:      "claude-sonnet-4-20250514",
-			Usage:      vo.Usage{InputTokens: 10, OutputTokens: 5},
-			StopReason: "end_turn",
+	chat := &mockChatExecutor{
+		result: handler.ChatResult{
+			Response: &vo.ChatResponse{
+				ID:         "msg_123",
+				Content:    "Hello!",
+				Model:      "claude-sonnet-4-20250514",
+				Usage:      vo.Usage{InputTokens: 10, OutputTokens: 5},
+				StopReason: "end_turn",
+			},
 		},
 	}
 	h := handler.NewChatHandler(chat, nil)
@@ -54,7 +84,7 @@ func TestChatHandler_NonStreaming_Success(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	serveWithAuth(h, apiKeyForTest(t), rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d; want %d", rec.Code, http.StatusOK)
@@ -90,7 +120,9 @@ func TestChatHandler_Streaming_Success(t *testing.T) {
 	events <- vo.StreamEvent{Type: vo.EventStop}
 	close(events)
 
-	stream := &mockStreamSender{events: events}
+	stream := &mockStreamExecutor{
+		result: handler.StreamResult{Events: events},
+	}
 	h := handler.NewChatHandler(nil, stream)
 
 	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}],"stream":true}`
@@ -98,7 +130,7 @@ func TestChatHandler_Streaming_Success(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	serveWithAuth(h, apiKeyForTest(t), rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d; want %d", rec.Code, http.StatusOK)
@@ -198,8 +230,25 @@ func TestChatHandler_BodyTooLarge(t *testing.T) {
 	assertErrorResponse(t, rec, "invalid_request_error", "request_too_large")
 }
 
+func TestChatHandler_NoAPIKey_Returns401(t *testing.T) {
+	h := handler.NewChatHandler(nil, nil)
+
+	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	// No auth middleware — apiKey is nil in context
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d; want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	assertErrorResponse(t, rec, "authentication_error", "invalid_api_key")
+}
+
 func TestChatHandler_UseCaseError(t *testing.T) {
-	chat := &mockChatSender{
+	chat := &mockChatExecutor{
 		err: errors.New("provider error"),
 	}
 	h := handler.NewChatHandler(chat, nil)
@@ -208,7 +257,7 @@ func TestChatHandler_UseCaseError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	serveWithAuth(h, apiKeyForTest(t), rec, req)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d; want %d", rec.Code, http.StatusInternalServerError)
@@ -218,7 +267,7 @@ func TestChatHandler_UseCaseError(t *testing.T) {
 }
 
 func TestChatHandler_StreamUseCaseError(t *testing.T) {
-	stream := &mockStreamSender{
+	stream := &mockStreamExecutor{
 		err: errors.New("stream error"),
 	}
 	h := handler.NewChatHandler(nil, stream)
@@ -227,7 +276,7 @@ func TestChatHandler_StreamUseCaseError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	serveWithAuth(h, apiKeyForTest(t), rec, req)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d; want %d", rec.Code, http.StatusInternalServerError)
@@ -236,23 +285,14 @@ func TestChatHandler_StreamUseCaseError(t *testing.T) {
 	assertErrorResponse(t, rec, "server_error", "internal_error")
 }
 
-// --- mock authenticator for injecting APIKey into context ---
-
-type mockAuthenticator struct {
-	key *entity.APIKey
-	err error
-}
-
-func (m *mockAuthenticator) Execute(_ context.Context, _ string) (*entity.APIKey, error) {
-	return m.key, m.err
-}
-
 func TestChatHandler_ModelNotAllowed(t *testing.T) {
-	chat := &mockChatSender{
-		resp: &vo.ChatResponse{
-			ID:      "msg_123",
-			Content: "Hello!",
-			Model:   "claude-sonnet-4-20250514",
+	chat := &mockChatExecutor{
+		result: handler.ChatResult{
+			Response: &vo.ChatResponse{
+				ID:      "msg_123",
+				Content: "Hello!",
+				Model:   "claude-sonnet-4-20250514",
+			},
 		},
 	}
 	h := handler.NewChatHandler(chat, nil)
@@ -264,15 +304,11 @@ func TestChatHandler_ModelNotAllowed(t *testing.T) {
 	}
 	apiKey.SetAllowedModels([]string{"claude-opus-4-20250514"})
 
-	// Use Auth middleware to inject APIKey into context
-	authMW := middleware.Auth(&mockAuthenticator{key: apiKey})
-
 	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer omni-test-token")
 	rec := httptest.NewRecorder()
 
-	authMW(http.HandlerFunc(h.ServeHTTP)).ServeHTTP(rec, req)
+	serveWithAuth(h, apiKey, rec, req)
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d; want %d", rec.Code, http.StatusForbidden)
@@ -281,13 +317,15 @@ func TestChatHandler_ModelNotAllowed(t *testing.T) {
 }
 
 func TestChatHandler_ModelAllowed(t *testing.T) {
-	chat := &mockChatSender{
-		resp: &vo.ChatResponse{
-			ID:         "msg_123",
-			Content:    "Hello!",
-			Model:      "claude-sonnet-4-20250514",
-			Usage:      vo.Usage{InputTokens: 10, OutputTokens: 5},
-			StopReason: "end_turn",
+	chat := &mockChatExecutor{
+		result: handler.ChatResult{
+			Response: &vo.ChatResponse{
+				ID:         "msg_123",
+				Content:    "Hello!",
+				Model:      "claude-sonnet-4-20250514",
+				Usage:      vo.Usage{InputTokens: 10, OutputTokens: 5},
+				StopReason: "end_turn",
+			},
 		},
 	}
 	h := handler.NewChatHandler(chat, nil)
@@ -299,14 +337,11 @@ func TestChatHandler_ModelAllowed(t *testing.T) {
 	}
 	apiKey.SetAllowedModels([]string{"claude-sonnet-4-20250514"})
 
-	authMW := middleware.Auth(&mockAuthenticator{key: apiKey})
-
 	body := `{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hi"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer omni-test-token")
 	rec := httptest.NewRecorder()
 
-	authMW(http.HandlerFunc(h.ServeHTTP)).ServeHTTP(rec, req)
+	serveWithAuth(h, apiKey, rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d; want %d", rec.Code, http.StatusOK)
