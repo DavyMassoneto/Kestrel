@@ -1,10 +1,10 @@
-package config_test
+package cfg_test
 
 import (
 	"os"
 	"testing"
 
-	"github.com/DavyMassoneto/Kestrel/internal/infra/config"
+	"github.com/DavyMassoneto/Kestrel/internal/infra/cfg"
 )
 
 func unsetAll(t *testing.T) {
@@ -18,7 +18,7 @@ func unsetAll(t *testing.T) {
 func TestLoad_Defaults(t *testing.T) {
 	unsetAll(t)
 
-	cfg, err := config.Load()
+	cfg, err := cfg.Load()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestLoad_OverrideViaEnv(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("LOG_FORMAT", "pretty")
 
-	cfg, err := config.Load()
+	cfg, err := cfg.Load()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestLoad_OverrideViaEnv(t *testing.T) {
 func TestLoad_InvalidPort(t *testing.T) {
 	t.Setenv("PORT", "not-a-number")
 
-	_, err := config.Load()
+	_, err := cfg.Load()
 	if err == nil {
 		t.Fatal("expected error for invalid PORT, got nil")
 	}
