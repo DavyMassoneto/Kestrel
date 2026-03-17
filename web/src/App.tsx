@@ -11,6 +11,7 @@ import { getAdminKey, setAdminKey } from '@/api/client'
 
 const Dashboard = lazy(() => import('@/routes/Dashboard'))
 const Accounts = lazy(() => import('@/routes/Accounts'))
+const AccountForm = lazy(() => import('@/routes/AccountForm'))
 const ApiKeys = lazy(() => import('@/routes/ApiKeys'))
 const Logs = lazy(() => import('@/routes/Logs'))
 
@@ -71,6 +72,22 @@ const router = createBrowserRouter(
           element: (
             <RouteWrapper>
               <Accounts />
+            </RouteWrapper>
+          ),
+        },
+        {
+          path: 'accounts/new',
+          element: (
+            <RouteWrapper>
+              <AccountForm />
+            </RouteWrapper>
+          ),
+        },
+        {
+          path: 'accounts/edit',
+          element: (
+            <RouteWrapper>
+              <AccountForm />
             </RouteWrapper>
           ),
         },
