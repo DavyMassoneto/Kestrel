@@ -42,6 +42,12 @@ func TestRunMigrations_CreatesTablesAndIndexes(t *testing.T) {
 		t.Fatalf("api_keys table not found: %v", err)
 	}
 
+	// Verify request_log table
+	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='request_log'").Scan(&name)
+	if err != nil {
+		t.Fatalf("request_log table not found: %v", err)
+	}
+
 	// Verify schema_migrations table
 	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&name)
 	if err != nil {
@@ -54,6 +60,10 @@ func TestRunMigrations_CreatesTablesAndIndexes(t *testing.T) {
 		"idx_accounts_priority",
 		"idx_api_keys_prefix",
 		"idx_api_keys_active",
+		"idx_request_log_created",
+		"idx_request_log_account",
+		"idx_request_log_apikey",
+		"idx_request_log_status",
 	} {
 		err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='index' AND name=?", idx).Scan(&name)
 		if err != nil {
@@ -79,8 +89,8 @@ func TestRunMigrations_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("expected 2 migrations recorded, got %d", count)
+	if count != 3 {
+		t.Errorf("expected 3 migrations recorded, got %d", count)
 	}
 }
 
@@ -97,7 +107,7 @@ func TestRunMigrations_TracksVersions(t *testing.T) {
 	}
 	defer rows.Close()
 
-	expected := []string{"001_accounts.sql", "002_apikeys.sql"}
+	expected := []string{"001_accounts.sql", "002_apikeys.sql", "003_request_log.sql"}
 	var got []string
 	for rows.Next() {
 		var v string

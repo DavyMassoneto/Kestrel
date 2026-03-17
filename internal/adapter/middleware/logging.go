@@ -38,13 +38,22 @@ func GetAPIKeyName(ctx context.Context) string {
 
 // RequestLogEntry contains structured data for request logging.
 type RequestLogEntry struct {
-	RequestID  string
-	APIKeyID   string
-	APIKeyName string
-	Status     int
-	LatencyMs  int64
-	Method     string
-	Path       string
+	RequestID    string
+	APIKeyID     string
+	APIKeyName   string
+	AccountID    string
+	AccountName  string
+	Model        string
+	Status       int
+	InputTokens  int
+	OutputTokens int
+	LatencyMs    int64
+	Retries      int
+	Error        string
+	Stream       bool
+	CreatedAt    string
+	Method       string
+	Path         string
 }
 
 // RequestLogger persists request log entries.
