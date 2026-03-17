@@ -111,7 +111,12 @@ func (uc *ProxyStreamUseCase) Execute(ctx context.Context, apiKeyID vo.APIKeyID,
 			}
 		}()
 
-		return ProxyStreamResult{Events: output, Retries: retries}, nil
+		return ProxyStreamResult{
+			Events:      output,
+			Retries:     retries,
+			AccountID:   account.ID().String(),
+			AccountName: account.Name(),
+		}, nil
 	}
 
 	return ProxyStreamResult{Retries: retries}, errs.ErrAllAccountsExhausted

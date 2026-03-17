@@ -15,7 +15,10 @@ const maxBodySize = 10 << 20 // 10MB
 
 // ChatResult encapsulates a chat response for the handler.
 type ChatResult struct {
-	Response *vo.ChatResponse
+	Response    *vo.ChatResponse
+	AccountID   string
+	AccountName string
+	Retries     int
 }
 
 // ChatExecutor executes a synchronous chat request.
@@ -25,7 +28,10 @@ type ChatExecutor interface {
 
 // StreamResult encapsulates a streaming response for the handler.
 type StreamResult struct {
-	Events <-chan vo.StreamEvent
+	Events      <-chan vo.StreamEvent
+	AccountID   string
+	AccountName string
+	Retries     int
 }
 
 // StreamExecutor executes a streaming chat request.
@@ -91,23 +97,55 @@ func (h *ChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apiKeyID := apiKey.ID()
+	ld := middleware.LogDataFromContext(r.Context())
 
 	// 7. Delegate to use case
 	isStream := openaiReq.Stream != nil && *openaiReq.Stream
+
+	// Populate model in LogData before calling use case
+	if ld != nil {
+		ld.Model = chatReq.Model.Raw
+		ld.Stream = isStream
+	}
+
 	if isStream {
 		result, err := h.streamExecutor.Execute(r.Context(), apiKeyID, chatReq)
 		if err != nil {
+			if ld != nil {
+				ld.Error = err.Error()
+			}
 			writeError(w, http.StatusInternalServerError, "server_error", "internal_error", err.Error())
 			return
 		}
+		if ld != nil {
+			ld.AccountID = result.AccountID
+			ld.AccountName = result.AccountName
+			ld.Retries = result.Retries
+		}
 		h.sseWriter.Write(r.Context(), w, result.Events, func(event vo.StreamEvent) []byte {
+			if ld != nil && event.Usage != nil {
+				ld.InputTokens = event.Usage.InputTokens
+				ld.OutputTokens = event.Usage.OutputTokens
+			}
 			return DomainEventToOpenAI(event, "chatcmpl-stream", chatReq.Model.Raw)
 		})
 	} else {
 		result, err := h.chatExecutor.Execute(r.Context(), apiKeyID, chatReq)
 		if err != nil {
+			if ld != nil {
+				ld.Error = err.Error()
+			}
 			writeError(w, http.StatusInternalServerError, "server_error", "internal_error", err.Error())
 			return
+		}
+		if ld != nil {
+			ld.AccountID = result.AccountID
+			ld.AccountName = result.AccountName
+			ld.Retries = result.Retries
+			if result.Response != nil {
+				ld.InputTokens = result.Response.Usage.InputTokens
+				ld.OutputTokens = result.Response.Usage.OutputTokens
+			}
 		}
 		openaiResp := DomainToOpenAI(result.Response)
 		w.Header().Set("Content-Type", "application/json")

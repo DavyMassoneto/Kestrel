@@ -45,12 +45,16 @@ type RetryAttempt struct {
 
 // ProxyChatResult encapsulates response + retry metadata for observability.
 type ProxyChatResult struct {
-	Response *vo.ChatResponse
-	Retries  []RetryAttempt
+	Response    *vo.ChatResponse
+	Retries     []RetryAttempt
+	AccountID   string
+	AccountName string
 }
 
 // ProxyStreamResult encapsulates channel + retry metadata.
 type ProxyStreamResult struct {
-	Events  <-chan vo.StreamEvent
-	Retries []RetryAttempt
+	Events      <-chan vo.StreamEvent
+	Retries     []RetryAttempt
+	AccountID   string
+	AccountName string
 }

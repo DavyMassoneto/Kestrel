@@ -42,7 +42,12 @@ func (a *chatAdapter) Execute(ctx context.Context, apiKeyID vo.APIKeyID, chatReq
 	if err != nil {
 		return handler.ChatResult{}, err
 	}
-	return handler.ChatResult{Response: result.Response}, nil
+	return handler.ChatResult{
+		Response:    result.Response,
+		AccountID:   result.AccountID,
+		AccountName: result.AccountName,
+		Retries:     len(result.Retries),
+	}, nil
 }
 
 // streamAdapter adapts ProxyStreamUseCase to handler.StreamExecutor.
@@ -55,7 +60,12 @@ func (a *streamAdapter) Execute(ctx context.Context, apiKeyID vo.APIKeyID, chatR
 	if err != nil {
 		return handler.StreamResult{}, err
 	}
-	return handler.StreamResult{Events: result.Events}, nil
+	return handler.StreamResult{
+		Events:      result.Events,
+		AccountID:   result.AccountID,
+		AccountName: result.AccountName,
+		Retries:     len(result.Retries),
+	}, nil
 }
 
 func main() {

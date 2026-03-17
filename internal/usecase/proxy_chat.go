@@ -72,7 +72,12 @@ func (uc *ProxyChatUseCase) Execute(ctx context.Context, apiKeyID vo.APIKeyID, c
 			session.BindAccount(account.ID())
 			session.RecordRequest(uc.clock.Now())
 			uc.sessionWriter.Save(ctx, session)
-			return ProxyChatResult{Response: chatResp, Retries: retries}, nil
+			return ProxyChatResult{
+				Response:    chatResp,
+				Retries:     retries,
+				AccountID:   account.ID().String(),
+				AccountName: account.Name(),
+			}, nil
 		}
 
 		// Error path: check if classified

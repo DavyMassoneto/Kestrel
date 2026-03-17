@@ -36,6 +36,30 @@ func GetAPIKeyName(ctx context.Context) string {
 	return ""
 }
 
+type ctxKeyLogData struct{}
+
+// LogData is a mutable, request-scoped store injected into the context by the
+// logging middleware. Handlers populate it after receiving use-case results;
+// the middleware reads it after next.ServeHTTP returns.
+type LogData struct {
+	Model        string
+	AccountID    string
+	AccountName  string
+	InputTokens  int
+	OutputTokens int
+	Retries      int
+	Stream       bool
+	Error        string
+}
+
+// LogDataFromContext retrieves the mutable LogData from the context.
+func LogDataFromContext(ctx context.Context) *LogData {
+	if ld, ok := ctx.Value(ctxKeyLogData{}).(*LogData); ok {
+		return ld
+	}
+	return nil
+}
+
 // RequestLogEntry contains structured data for request logging.
 type RequestLogEntry struct {
 	RequestID    string
@@ -85,6 +109,10 @@ func NewLogging(logger RequestLogger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 
+			ld := &LogData{}
+			ctx := context.WithValue(r.Context(), ctxKeyLogData{}, ld)
+			r = r.WithContext(ctx)
+
 			sw := &statusWriter{ResponseWriter: w}
 			next.ServeHTTP(sw, r)
 
@@ -102,13 +130,22 @@ func NewLogging(logger RequestLogger) func(http.Handler) http.Handler {
 			apiKeyID := GetAPIKeyID(r.Context())
 			if logger != nil && apiKeyID != "" {
 				entry := RequestLogEntry{
-					RequestID:  GetRequestID(r.Context()),
-					APIKeyID:   apiKeyID,
-					APIKeyName: GetAPIKeyName(r.Context()),
-					Status:     status,
-					LatencyMs:  latency,
-					Method:     r.Method,
-					Path:       r.URL.Path,
+					RequestID:    GetRequestID(r.Context()),
+					APIKeyID:     apiKeyID,
+					APIKeyName:   GetAPIKeyName(r.Context()),
+					AccountID:    ld.AccountID,
+					AccountName:  ld.AccountName,
+					Model:        ld.Model,
+					Status:       status,
+					InputTokens:  ld.InputTokens,
+					OutputTokens: ld.OutputTokens,
+					LatencyMs:    latency,
+					Retries:      ld.Retries,
+					Error:        ld.Error,
+					Stream:       ld.Stream,
+					CreatedAt:    start.UTC().Format(time.RFC3339),
+					Method:       r.Method,
+					Path:         r.URL.Path,
 				}
 				if err := logger.LogRequest(r.Context(), entry); err != nil {
 					slog.Error("failed to persist request log",

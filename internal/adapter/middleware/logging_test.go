@@ -312,6 +312,118 @@ func TestLogging_NoWriteAtAll(t *testing.T) {
 	}
 }
 
+func TestLogging_LogDataEnrichedByHandler(t *testing.T) {
+	spy := &spyRequestLogger{}
+	mw := middleware.NewLogging(spy)
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ld := middleware.LogDataFromContext(r.Context())
+		if ld == nil {
+			t.Fatal("LogData not found in context")
+		}
+		ld.Model = "claude-sonnet-4-20250514"
+		ld.AccountID = "acc-123"
+		ld.AccountName = "main-account"
+		ld.InputTokens = 100
+		ld.OutputTokens = 50
+		ld.Retries = 2
+		ld.Stream = false
+		ld.Error = ""
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := reqWithAPIKey(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if len(spy.entries) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(spy.entries))
+	}
+	e := spy.entries[0]
+	if e.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("Model = %q, want %q", e.Model, "claude-sonnet-4-20250514")
+	}
+	if e.AccountID != "acc-123" {
+		t.Errorf("AccountID = %q, want %q", e.AccountID, "acc-123")
+	}
+	if e.AccountName != "main-account" {
+		t.Errorf("AccountName = %q, want %q", e.AccountName, "main-account")
+	}
+	if e.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100", e.InputTokens)
+	}
+	if e.OutputTokens != 50 {
+		t.Errorf("OutputTokens = %d, want 50", e.OutputTokens)
+	}
+	if e.Retries != 2 {
+		t.Errorf("Retries = %d, want 2", e.Retries)
+	}
+	if e.Stream {
+		t.Error("Stream = true, want false")
+	}
+}
+
+func TestLogging_CreatedAtPopulated(t *testing.T) {
+	spy := &spyRequestLogger{}
+	mw := middleware.NewLogging(spy)
+
+	before := time.Now().UTC()
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := reqWithAPIKey(httptest.NewRequest(http.MethodGet, "/", nil))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if len(spy.entries) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(spy.entries))
+	}
+	if spy.entries[0].CreatedAt == "" {
+		t.Fatal("CreatedAt should not be empty")
+	}
+	parsed, err := time.Parse(time.RFC3339, spy.entries[0].CreatedAt)
+	if err != nil {
+		t.Fatalf("CreatedAt parse error: %v", err)
+	}
+	if parsed.Before(before.Add(-1 * time.Second)) {
+		t.Errorf("CreatedAt = %v, expected around %v", parsed, before)
+	}
+}
+
+func TestLogging_LogDataFromContext_NoLogData(t *testing.T) {
+	ld := middleware.LogDataFromContext(context.Background())
+	if ld != nil {
+		t.Errorf("expected nil, got %v", ld)
+	}
+}
+
+func TestLogging_LogDataErrorField(t *testing.T) {
+	spy := &spyRequestLogger{}
+	mw := middleware.NewLogging(spy)
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ld := middleware.LogDataFromContext(r.Context())
+		if ld != nil {
+			ld.Error = "provider timeout"
+			ld.Model = "claude-sonnet-4-20250514"
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	req := reqWithAPIKey(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if len(spy.entries) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(spy.entries))
+	}
+	if spy.entries[0].Error != "provider timeout" {
+		t.Errorf("Error = %q, want %q", spy.entries[0].Error, "provider timeout")
+	}
+}
+
 type errorRequestLogger struct{}
 
 func (e *errorRequestLogger) LogRequest(_ context.Context, _ middleware.RequestLogEntry) error {
