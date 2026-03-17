@@ -55,7 +55,7 @@ usecase/admin_account.go    → define AccountStore (CRUD completo: FindByID, Fi
 usecase/admin_apikey.go     → define APIKeyStore  (CRUD completo: FindByID, FindAll, Create, Delete)
 
 usecase/authenticate.go     → define APIKeyFinder        (1 método: FindByPrefix)
-adapter/middleware/logging.go → define RequestLogger (1 método: LogRequest) + RequestLogEntry
+adapter/middleware/logging.go → define RequestLogger (1 método: LogRequest) + RequestLogReader (1 método: FindAll) + RequestLogEntry + RequestLogFilters
 adapter/middleware/auth.go  → define Authenticator       (1 método: Execute)
 
 usecase/select_account.go   → define AccountFinder      (1 método: FindAvailable)
@@ -136,7 +136,7 @@ kestrel/
 │   │       ├── migrations.go          # Auto-migration no startup
 │   │       ├── account_repo.go        # Implementa AccountStore (FindByID, FindAll, Create, Save, Delete)
 │   │       ├── apikey_repo.go         # Implementa APIKeyStore (FindByID, FindAll, Create, Delete)
-│   │       └── request_log_repo.go   # (planned — Phase 6)
+│   │       └── request_log_repo.go   # Implementa RequestLogger (LogRequest) + RequestLogReader (FindAll)
 │   │
 │   └── infra/
 │       ├── cfg/
@@ -150,7 +150,7 @@ kestrel/
 │   ├── embed.go                       # embed.FS para migrations SQL
 │   ├── 001_accounts.sql
 │   ├── 002_apikeys.sql
-│   └── 003_request_log.sql            # (planned — Phase 6)
+│   └── 003_request_log.sql            # Tabela request_log + índices
 │
 ├── go.mod
 ├── go.sum

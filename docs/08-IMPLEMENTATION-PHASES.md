@@ -183,7 +183,7 @@ Arquivos de teste:
 
 ---
 
-## Fase 6 — Logging + Request Log
+## Fase 6 — Logging + Request Log [DONE]
 
 **Objetivo:** Rastreamento completo de cada request.
 

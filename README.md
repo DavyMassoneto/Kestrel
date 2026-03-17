@@ -82,6 +82,7 @@ make build
 | GET    | `/admin/keys`                | List API keys              |
 | POST   | `/admin/keys`                | Create API key             |
 | DELETE | `/admin/keys/{id}`           | Revoke API key             |
+| GET    | `/admin/logs`                | Query request logs (paginated, filterable) |
 
 Admin endpoints require `X-Admin-Key` header.
 
@@ -92,7 +93,7 @@ Admin endpoints require `X-Admin-Key` header.
 - **Phase 3** — SQLite + Persistence (repos, migrations, crypto, admin CRUD): Done
 - **Phase 4** — Authentication + Logging Middleware: Done
 - **Phase 5** — Multi-account + Fallback: Done
-- **Phase 6** — Request Log persistence: Pending
+- **Phase 6** — Request Log persistence: Done
 - **Phase 7** — Frontend + Deploy: Pending
 - **Phase 8** — Integration + E2E Tests: Pending
 
