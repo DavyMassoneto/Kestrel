@@ -286,6 +286,76 @@ func TestAccountRepo_UpdateStatus(t *testing.T) {
 	}
 }
 
+func TestAccountRepo_Save_WithAllFields(t *testing.T) {
+	repo, _ := setupRepo(t)
+	ctx := context.Background()
+
+	acc := makeAccount(t)
+	repo.Create(ctx, acc)
+
+	// Apply cooldown so account has all nullable fields populated
+	now := time.Now()
+	acc.ApplyCooldown(vo.ErrRateLimit, now)
+	acc.RecordUsage(now)
+
+	// Save with cooldown, lastUsedAt, lastError, errClassification all set
+	if err := repo.Save(ctx, acc); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	found, err := repo.FindByID(ctx, acc.ID())
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if found.Status() != entity.StatusCooldown {
+		t.Errorf("Status = %q; want cooldown", found.Status())
+	}
+	if found.CooldownUntil() == nil {
+		t.Error("CooldownUntil should not be nil")
+	}
+	if found.LastUsedAt() == nil {
+		t.Error("LastUsedAt should not be nil")
+	}
+	if found.LastError() == nil {
+		t.Error("LastError should not be nil")
+	}
+	if found.ErrorClassification() == nil {
+		t.Error("ErrorClassification should not be nil")
+	}
+}
+
+func TestAccountRepo_Create_WithCooldownAndUsage(t *testing.T) {
+	repo, _ := setupRepo(t)
+	ctx := context.Background()
+
+	acc := makeAccount(t)
+	now := time.Now()
+	acc.ApplyCooldown(vo.ErrOverloaded, now)
+	acc.RecordUsage(now)
+
+	if err := repo.Create(ctx, acc); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	found, err := repo.FindByID(ctx, acc.ID())
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if found.CooldownUntil() == nil {
+		t.Error("CooldownUntil should be set")
+	}
+	if found.LastUsedAt() == nil {
+		t.Error("LastUsedAt should be set")
+	}
+	if found.LastError() == nil {
+		t.Error("LastError should be set")
+	}
+	ec := found.ErrorClassification()
+	if ec == nil || *ec != vo.ErrOverloaded {
+		t.Errorf("ErrorClassification = %v; want overloaded", ec)
+	}
+}
+
 func TestAccountRepo_RecordSuccess(t *testing.T) {
 	repo, _ := setupRepo(t)
 	ctx := context.Background()
