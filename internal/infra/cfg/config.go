@@ -12,7 +12,11 @@ type Config struct {
 	AdminKey      string `env:"ADMIN_KEY,required"`
 	ClaudeAPIKey  string `env:"CLAUDE_API_KEY,required"`
 	ClaudeBaseURL string `env:"CLAUDE_BASE_URL" envDefault:"https://api.anthropic.com"`
-	DBPath        string `env:"DB_PATH"         envDefault:"kestrel.db"`
+	DBPath           string `env:"DB_PATH"             envDefault:"kestrel.db"`
+	OAuthClientID    string `env:"OAUTH_CLIENT_ID"     envDefault:""`
+	OAuthRedirectURI string `env:"OAUTH_REDIRECT_URI"  envDefault:"http://localhost:8080/api/oauth/callback"`
+	OAuthAuthURL     string `env:"OAUTH_AUTH_URL"       envDefault:"https://console.anthropic.com/oauth/authorize"`
+	OAuthTokenURL    string `env:"OAUTH_TOKEN_URL"      envDefault:"https://console.anthropic.com/oauth/token"`
 }
 
 func Load() (Config, error) {

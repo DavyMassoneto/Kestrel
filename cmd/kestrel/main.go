@@ -18,6 +18,7 @@ import (
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/claude"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/crypto"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/handler"
+	"github.com/DavyMassoneto/Kestrel/internal/adapter/oauth"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/middleware"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/session"
 	"github.com/DavyMassoneto/Kestrel/internal/adapter/sqlite"
@@ -181,6 +182,20 @@ func main() {
 	r.Get("/health", healthHandler.ServeHTTP)
 
 	adminHandler.RegisterRoutes(r)
+
+	// --- OAuth (optional) ---
+	if appCfg.OAuthClientID != "" {
+		oauthCfg := oauth.Config{
+			ClientID:    appCfg.OAuthClientID,
+			RedirectURI: appCfg.OAuthRedirectURI,
+			AuthURL:     appCfg.OAuthAuthURL,
+			TokenURL:    appCfg.OAuthTokenURL,
+		}
+		oauthClient := oauth.NewClient(http.DefaultClient)
+		oauthHandler := handler.NewOAuthHandler(oauthClient, oauthCfg)
+		oauthHandler.RegisterRoutes(r)
+		log.Info("oauth enabled", slog.String("client_id", appCfg.OAuthClientID))
+	}
 
 	// --- Frontend SPA ---
 	webSubFS, err := fs.Sub(webFS, "web/dist")

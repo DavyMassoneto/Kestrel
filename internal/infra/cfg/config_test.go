@@ -88,6 +88,54 @@ func TestLoad_InvalidPort(t *testing.T) {
 	}
 }
 
+func TestConfig_OAuthDefaults(t *testing.T) {
+	unsetAll(t)
+	setRequired(t)
+
+	c, err := cfg.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.OAuthClientID != "" {
+		t.Errorf("OAuthClientID = %q; want empty", c.OAuthClientID)
+	}
+	if c.OAuthRedirectURI != "http://localhost:8080/api/oauth/callback" {
+		t.Errorf("OAuthRedirectURI = %q; want default", c.OAuthRedirectURI)
+	}
+	if c.OAuthAuthURL != "https://console.anthropic.com/oauth/authorize" {
+		t.Errorf("OAuthAuthURL = %q; want default", c.OAuthAuthURL)
+	}
+	if c.OAuthTokenURL != "https://console.anthropic.com/oauth/token" {
+		t.Errorf("OAuthTokenURL = %q; want default", c.OAuthTokenURL)
+	}
+}
+
+func TestConfig_OAuthFromEnv(t *testing.T) {
+	unsetAll(t)
+	setRequired(t)
+	t.Setenv("OAUTH_CLIENT_ID", "my-client")
+	t.Setenv("OAUTH_REDIRECT_URI", "https://myapp.com/callback")
+	t.Setenv("OAUTH_AUTH_URL", "https://custom-auth.com/authorize")
+	t.Setenv("OAUTH_TOKEN_URL", "https://custom-auth.com/token")
+
+	c, err := cfg.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.OAuthClientID != "my-client" {
+		t.Errorf("OAuthClientID = %q; want my-client", c.OAuthClientID)
+	}
+	if c.OAuthRedirectURI != "https://myapp.com/callback" {
+		t.Errorf("OAuthRedirectURI = %q; want custom", c.OAuthRedirectURI)
+	}
+	if c.OAuthAuthURL != "https://custom-auth.com/authorize" {
+		t.Errorf("OAuthAuthURL = %q; want custom", c.OAuthAuthURL)
+	}
+	if c.OAuthTokenURL != "https://custom-auth.com/token" {
+		t.Errorf("OAuthTokenURL = %q; want custom", c.OAuthTokenURL)
+	}
+}
+
 func TestLoad_MissingRequiredFields(t *testing.T) {
 	unsetAll(t)
 	// Don't set required fields
