@@ -63,14 +63,10 @@ func (r *APIKeyRepo) FindAll(ctx context.Context) ([]*entity.APIKey, error) {
 
 // Create inserts a new API key.
 func (r *APIKeyRepo) Create(ctx context.Context, key *entity.APIKey) error {
-	modelsJSON, err := marshalModels(key.AllowedModels())
-	if err != nil {
-		return err
-	}
-
+	modelsJSON := marshalModels(key.AllowedModels())
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = r.db.Writer().ExecContext(ctx,
+	_, err := r.db.Writer().ExecContext(ctx,
 		`INSERT INTO api_keys (id, key_hash, key_prefix, name, is_active, allowed_models, created_at, last_used_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		key.ID().String(),
@@ -96,10 +92,8 @@ func (r *APIKeyRepo) Delete(ctx context.Context, id vo.APIKeyID) error {
 		return fmt.Errorf("delete api_key: %w", err)
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("rows affected: %w", err)
-	}
+	// RowsAffected never returns error for the sqlite driver.
+	affected, _ := result.RowsAffected()
 	if affected == 0 {
 		return fmt.Errorf("API key not found")
 	}
@@ -176,15 +170,14 @@ func (r *APIKeyRepo) buildKey(id, keyHash, keyPrefix, name string, isActive bool
 	return key, nil
 }
 
-func marshalModels(models []string) (sql.NullString, error) {
+// marshalModels serializes a string slice to JSON.
+// json.Marshal never fails for []string — all strings are valid JSON.
+func marshalModels(models []string) sql.NullString {
 	if len(models) == 0 {
-		return sql.NullString{}, nil
+		return sql.NullString{}
 	}
-	data, err := json.Marshal(models)
-	if err != nil {
-		return sql.NullString{}, fmt.Errorf("marshal allowed_models: %w", err)
-	}
-	return sql.NullString{String: string(data), Valid: true}, nil
+	data, _ := json.Marshal(models)
+	return sql.NullString{String: string(data), Valid: true}
 }
 
 func unmarshalModels(s string) ([]string, error) {
