@@ -176,8 +176,8 @@ func main() {
 	r.Get("/app", http.RedirectHandler("/app/", http.StatusMovedPermanently).ServeHTTP)
 
 	r.Route("/v1", func(r chi.Router) {
-		r.Use(middleware.NewLogging(requestLogRepo))
 		r.Use(middleware.Auth(authenticateUC))
+		r.Use(middleware.NewLogging(requestLogRepo))
 		r.Post("/chat/completions", chatHandler.ServeHTTP)
 		r.Get("/models", modelsHandler)
 	})
