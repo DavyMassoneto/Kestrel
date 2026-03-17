@@ -310,3 +310,202 @@ func TestResetAccount_NotFound(t *testing.T) {
 		t.Fatal("expected error for not found")
 	}
 }
+
+func TestResetAccount_SaveFails(t *testing.T) {
+	store := newMockAccountStore()
+	store.saveFn = func(_ context.Context, _ *entity.Account) error {
+		return errors.New("db error")
+	}
+	uc := NewAdminAccountUseCase(store)
+
+	acc, _ := entity.NewAccount(
+		vo.NewAccountID(),
+		"test",
+		vo.NewSensitiveString("sk-ant-key"),
+		"https://api.anthropic.com",
+		1,
+	)
+	acc.ApplyCooldown(vo.ErrRateLimit, testNow)
+	store.accounts[acc.ID().String()] = acc
+
+	_, err := uc.Reset(context.Background(), acc.ID())
+	if err == nil {
+		t.Fatal("expected error when save fails")
+	}
+}
+
+func TestListAccounts_Success(t *testing.T) {
+	store := newMockAccountStore()
+	uc := NewAdminAccountUseCase(store)
+
+	acc1, _ := entity.NewAccount(vo.NewAccountID(), "acc-1", vo.NewSensitiveString("sk-1"), "https://api.anthropic.com", 1)
+	acc2, _ := entity.NewAccount(vo.NewAccountID(), "acc-2", vo.NewSensitiveString("sk-2"), "https://api.anthropic.com", 2)
+	store.accounts[acc1.ID().String()] = acc1
+	store.accounts[acc2.ID().String()] = acc2
+
+	result, err := uc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List error: %v", err)
+	}
+	if len(result) != 2 {
+		t.Errorf("List returned %d accounts, want 2", len(result))
+	}
+}
+
+func TestListAccounts_Empty(t *testing.T) {
+	store := newMockAccountStore()
+	uc := NewAdminAccountUseCase(store)
+
+	result, err := uc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List error: %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("List returned %d accounts, want 0", len(result))
+	}
+}
+
+func TestUpdateAccount_PartialAPIKey(t *testing.T) {
+	store := newMockAccountStore()
+	uc := NewAdminAccountUseCase(store)
+
+	acc, _ := entity.NewAccount(
+		vo.NewAccountID(),
+		"test",
+		vo.NewSensitiveString("sk-old-key"),
+		"https://api.anthropic.com",
+		1,
+	)
+	store.accounts[acc.ID().String()] = acc
+
+	newKey := "sk-new-key"
+	input := UpdateAccountInput{APIKey: &newKey}
+
+	updated, err := uc.Update(context.Background(), acc.ID(), input)
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+	if updated.Credentials().APIKey.Value() != "sk-new-key" {
+		t.Errorf("APIKey = %q, want %q", updated.Credentials().APIKey.Value(), "sk-new-key")
+	}
+	if updated.Name() != "test" {
+		t.Errorf("Name = %q, should remain unchanged", updated.Name())
+	}
+}
+
+func TestUpdateAccount_PartialBaseURL(t *testing.T) {
+	store := newMockAccountStore()
+	uc := NewAdminAccountUseCase(store)
+
+	acc, _ := entity.NewAccount(
+		vo.NewAccountID(),
+		"test",
+		vo.NewSensitiveString("sk-ant-key"),
+		"https://api.anthropic.com",
+		1,
+	)
+	store.accounts[acc.ID().String()] = acc
+
+	newURL := "https://custom.api.example.com"
+	input := UpdateAccountInput{BaseURL: &newURL}
+
+	updated, err := uc.Update(context.Background(), acc.ID(), input)
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+	if updated.BaseURL() != "https://custom.api.example.com" {
+		t.Errorf("BaseURL = %q, want %q", updated.BaseURL(), "https://custom.api.example.com")
+	}
+	if updated.Name() != "test" {
+		t.Errorf("Name = %q, should remain unchanged", updated.Name())
+	}
+}
+
+func TestUpdateAccount_SaveFails(t *testing.T) {
+	store := newMockAccountStore()
+	store.saveFn = func(_ context.Context, _ *entity.Account) error {
+		return errors.New("db error")
+	}
+	uc := NewAdminAccountUseCase(store)
+
+	acc, _ := entity.NewAccount(
+		vo.NewAccountID(),
+		"test",
+		vo.NewSensitiveString("sk-ant-key"),
+		"https://api.anthropic.com",
+		1,
+	)
+	store.accounts[acc.ID().String()] = acc
+
+	newName := "updated"
+	input := UpdateAccountInput{Name: &newName}
+
+	_, err := uc.Update(context.Background(), acc.ID(), input)
+	if err == nil {
+		t.Fatal("expected error when save fails")
+	}
+}
+
+func TestUpdateAccount_RehydrateValidationFails(t *testing.T) {
+	store := newMockAccountStore()
+	uc := NewAdminAccountUseCase(store)
+
+	acc, _ := entity.NewAccount(
+		vo.NewAccountID(),
+		"test",
+		vo.NewSensitiveString("sk-ant-key"),
+		"https://api.anthropic.com",
+		1,
+	)
+	store.accounts[acc.ID().String()] = acc
+
+	emptyName := ""
+	input := UpdateAccountInput{Name: &emptyName}
+
+	_, err := uc.Update(context.Background(), acc.ID(), input)
+	if err == nil {
+		t.Fatal("expected error when rehydrate validation fails")
+	}
+}
+
+func TestUpdateAccount_AllFields(t *testing.T) {
+	store := newMockAccountStore()
+	uc := NewAdminAccountUseCase(store)
+
+	acc, _ := entity.NewAccount(
+		vo.NewAccountID(),
+		"original",
+		vo.NewSensitiveString("sk-old"),
+		"https://api.anthropic.com",
+		1,
+	)
+	store.accounts[acc.ID().String()] = acc
+
+	newName := "updated"
+	newKey := "sk-new"
+	newURL := "https://custom.api.com"
+	newPriority := 10
+	input := UpdateAccountInput{
+		Name:     &newName,
+		APIKey:   &newKey,
+		BaseURL:  &newURL,
+		Priority: &newPriority,
+	}
+
+	updated, err := uc.Update(context.Background(), acc.ID(), input)
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+	if updated.Name() != "updated" {
+		t.Errorf("Name = %q, want %q", updated.Name(), "updated")
+	}
+	if updated.Credentials().APIKey.Value() != "sk-new" {
+		t.Errorf("APIKey = %q, want %q", updated.Credentials().APIKey.Value(), "sk-new")
+	}
+	if updated.BaseURL() != "https://custom.api.com" {
+		t.Errorf("BaseURL = %q, want %q", updated.BaseURL(), "https://custom.api.com")
+	}
+	if updated.Priority() != 10 {
+		t.Errorf("Priority = %d, want 10", updated.Priority())
+	}
+}

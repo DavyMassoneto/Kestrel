@@ -177,3 +177,112 @@ func TestRevokeAPIKey_NotFound(t *testing.T) {
 		t.Fatal("expected error for not found")
 	}
 }
+
+func TestListAPIKeys_Success(t *testing.T) {
+	store := newMockAPIKeyStore()
+	uc := NewAdminAPIKeyUseCase(store)
+
+	key1, _ := entity.NewAPIKey(vo.NewAPIKeyID(), "key-1", "hash1", "prefix1")
+	key2, _ := entity.NewAPIKey(vo.NewAPIKeyID(), "key-2", "hash2", "prefix2")
+	store.keys[key1.ID().String()] = key1
+	store.keys[key2.ID().String()] = key2
+
+	result, err := uc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List error: %v", err)
+	}
+	if len(result) != 2 {
+		t.Errorf("List returned %d keys, want 2", len(result))
+	}
+}
+
+func TestListAPIKeys_Empty(t *testing.T) {
+	store := newMockAPIKeyStore()
+	uc := NewAdminAPIKeyUseCase(store)
+
+	result, err := uc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List error: %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("List returned %d keys, want 0", len(result))
+	}
+}
+
+func TestGenerateRawKey_Format(t *testing.T) {
+	store := newMockAPIKeyStore()
+	uc := NewAdminAPIKeyUseCase(store)
+
+	input := CreateAPIKeyInput{Name: "format-check"}
+	_, rawKey, err := uc.Create(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Create error: %v", err)
+	}
+
+	// rawKey = "omni-" (5) + 64 hex chars = 69 chars total
+	if len(rawKey) != 69 {
+		t.Errorf("rawKey length = %d, want 69", len(rawKey))
+	}
+	if !strings.HasPrefix(rawKey, "omni-") {
+		t.Errorf("rawKey should start with 'omni-'")
+	}
+
+	// Hex portion should be valid hex
+	hexPart := rawKey[5:]
+	for _, c := range hexPart {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			t.Errorf("rawKey hex part contains invalid char %c", c)
+			break
+		}
+	}
+}
+
+func TestGenerateRawKey_Uniqueness(t *testing.T) {
+	store := newMockAPIKeyStore()
+	uc := NewAdminAPIKeyUseCase(store)
+
+	keys := make(map[string]bool)
+	for i := 0; i < 10; i++ {
+		input := CreateAPIKeyInput{Name: "unique-check"}
+		_, rawKey, err := uc.Create(context.Background(), input)
+		if err != nil {
+			t.Fatalf("Create error on iteration %d: %v", i, err)
+		}
+		if keys[rawKey] {
+			t.Fatalf("duplicate rawKey generated: %s", rawKey)
+		}
+		keys[rawKey] = true
+	}
+}
+
+func TestCreateAPIKey_GenerateKeyFails(t *testing.T) {
+	store := newMockAPIKeyStore()
+	uc := NewAdminAPIKeyUseCase(store)
+	uc.genRawKey = func() (string, error) {
+		return "", errors.New("entropy exhausted")
+	}
+
+	_, _, err := uc.Create(context.Background(), CreateAPIKeyInput{Name: "test"})
+	if err == nil {
+		t.Fatal("expected error when key generation fails")
+	}
+	if !strings.Contains(err.Error(), "failed to generate key") {
+		t.Errorf("error = %q, want to contain 'failed to generate key'", err.Error())
+	}
+}
+
+func TestCreateAPIKey_HashFails(t *testing.T) {
+	store := newMockAPIKeyStore()
+	uc := NewAdminAPIKeyUseCase(store)
+	uc.hashKey = func(_ string) (string, error) {
+		return "", errors.New("hash error")
+	}
+
+	_, _, err := uc.Create(context.Background(), CreateAPIKeyInput{Name: "test"})
+	if err == nil {
+		t.Fatal("expected error when hash fails")
+	}
+	if !strings.Contains(err.Error(), "failed to hash key") {
+		t.Errorf("error = %q, want to contain 'failed to hash key'", err.Error())
+	}
+}

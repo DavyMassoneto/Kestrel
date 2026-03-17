@@ -33,23 +33,29 @@ type CreateAPIKeyInput struct {
 
 // AdminAPIKeyUseCase handles API key administration operations.
 type AdminAPIKeyUseCase struct {
-	store APIKeyStore
+	store      APIKeyStore
+	genRawKey  func() (string, error)
+	hashKey    func(raw string) (string, error)
 }
 
 // NewAdminAPIKeyUseCase creates a new AdminAPIKeyUseCase.
 func NewAdminAPIKeyUseCase(store APIKeyStore) *AdminAPIKeyUseCase {
-	return &AdminAPIKeyUseCase{store: store}
+	return &AdminAPIKeyUseCase{
+		store:     store,
+		genRawKey: generateRawKey,
+		hashKey:   hashRawKey,
+	}
 }
 
 // Create generates a new API key, hashes it, and persists it.
 // Returns the entity and the raw key (shown only once to the user).
 func (uc *AdminAPIKeyUseCase) Create(ctx context.Context, input CreateAPIKeyInput) (*entity.APIKey, string, error) {
-	rawKey, err := generateRawKey()
+	rawKey, err := uc.genRawKey()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate key: %w", err)
 	}
 
-	hashBytes, err := bcrypt.GenerateFromPassword([]byte(rawKey), bcrypt.DefaultCost)
+	hash, err := uc.hashKey(rawKey)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to hash key: %w", err)
 	}
@@ -59,7 +65,7 @@ func (uc *AdminAPIKeyUseCase) Create(ctx context.Context, input CreateAPIKeyInpu
 	key, err := entity.NewAPIKey(
 		vo.NewAPIKeyID(),
 		input.Name,
-		string(hashBytes),
+		hash,
 		prefix,
 	)
 	if err != nil {
@@ -93,4 +99,12 @@ func generateRawKey() (string, error) {
 		return "", err
 	}
 	return rawKeyPrefix + hex.EncodeToString(b), nil
+}
+
+func hashRawKey(raw string) (string, error) {
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(raw), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hashBytes), nil
 }
